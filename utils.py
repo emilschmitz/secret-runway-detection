@@ -91,23 +91,29 @@ def aoi_to_input_areas(aoi: Polygon, num_areas_vertically: int = INPUT_AREAS_VER
     """
     Returns both input area geometries and the tile row and column index ranges that cover them.
     """
-    raise NotImplementedError("input areas contain different number of tiles. instead they should overlap")
     input_areas = []
     minx, miny, maxx, maxy = aoi.bounds
 
-    # Calculate the step sizes to cover the AOI with overlapping input areas
-    x_total_range = maxx - minx - INPUT_IMAGE_WIDTH * TILE_SIDE_LEN
-    y_total_range = maxy - miny - INPUT_IMAGE_HEIGHT * TILE_SIDE_LEN
+    # The input area size in meters
+    input_area_width = INPUT_IMAGE_WIDTH * TILE_SIDE_LEN  # 224 * 10 = 2240 meters
+    input_area_height = INPUT_IMAGE_HEIGHT * TILE_SIDE_LEN  # 224 * 10 = 2240 meters
 
-    x_step = x_total_range / (num_areas_horizontally - 1)
-    y_step = y_total_range / (num_areas_vertically - 1)
+    # Calculate the step sizes to cover the AOI with overlapping input areas
+    x_total_range = maxx - minx
+    y_total_range = maxy - miny
+
+    x_overlap = (num_areas_horizontally * input_area_width - x_total_range) / (num_areas_horizontally - 1)
+    y_overlap = (num_areas_vertically * input_area_height - y_total_range) / (num_areas_vertically - 1)
+
+    x_step = input_area_width - x_overlap
+    y_step = input_area_height - y_overlap
 
     for i in range(num_areas_horizontally):
         for j in range(num_areas_vertically):
             left = minx + i * x_step
             bottom = miny + j * y_step
-            right = left + INPUT_IMAGE_WIDTH * TILE_SIDE_LEN
-            top = bottom + INPUT_IMAGE_HEIGHT * TILE_SIDE_LEN
+            right = left + input_area_width
+            top = bottom + input_area_height
 
             input_area_polygon = Polygon([
                 (left, bottom),
@@ -118,10 +124,10 @@ def aoi_to_input_areas(aoi: Polygon, num_areas_vertically: int = INPUT_AREAS_VER
             ])
 
             # Calculate tile indices covering this input area
-            leftmost_col_idx = int((left - minx) / TILE_SIDE_LEN)
-            rightmost_col_idx = int((right - minx) / TILE_SIDE_LEN)
-            bottom_row_idx = int((bottom - miny) / TILE_SIDE_LEN)
-            top_row_idx = int((top - miny) / TILE_SIDE_LEN)
+            leftmost_col_idx = int(round((left - minx) / TILE_SIDE_LEN))
+            rightmost_col_idx = int(round((right - minx) / TILE_SIDE_LEN))
+            bottom_row_idx = int(round((bottom - miny) / TILE_SIDE_LEN))
+            top_row_idx = int(round((top - miny) / TILE_SIDE_LEN))
 
             input_areas.append({
                 'geometry': input_area_polygon,
@@ -133,7 +139,7 @@ def aoi_to_input_areas(aoi: Polygon, num_areas_vertically: int = INPUT_AREAS_VER
                 }
             })
 
-    input_areas_gdf = gpd.GeoDataFrame(input_areas, crs='EPSG:32633')  # Replace with appropriate CRS
+    input_areas_gdf = gpd.GeoDataFrame(input_areas, crs=aoi.crs)
     return input_areas_gdf
 
 def input_area_to_input_image(input_area: Polygon) -> np.ndarray:
