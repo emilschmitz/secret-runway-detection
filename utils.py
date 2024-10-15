@@ -1,6 +1,7 @@
 import geopandas as gpd
 import pandas as pd
 import numpy as np
+import pyproj
 import torch
 from shapely.geometry import Polygon, Point
 import os
@@ -37,7 +38,7 @@ INPUT_AREAS_VERTICALLY = 10
 INPUT_AREAS_HORIZONTALLY = 10
 
 
-def point_to_aoi_southeast(point: Point) -> Polygon:
+def point_to_aoi_southeast(point: Point, crs) -> Polygon:
     """
     Creates a rectangular AOI polygon starting from a point (northwest corner),
     extending AOI_WIDTH meters east and AOI_HEIGHT meters south.
@@ -87,7 +88,7 @@ def aoi_to_tiles(aoi: Polygon) -> gpd.GeoDataFrame:
     tiles_gdf = gpd.GeoDataFrame(tiles, crs='EPSG:32633')  # Replace with appropriate CRS
     return tiles_gdf
 
-def aoi_to_input_areas(aoi: Polygon, num_areas_vertically: int = INPUT_AREAS_VERTICALLY, num_areas_horizontally: int = INPUT_AREAS_HORIZONTALLY) -> gpd.GeoDataFrame:
+def aoi_to_input_areas(aoi: Polygon, crs: pyproj.CRS, num_areas_vertically: int = INPUT_AREAS_VERTICALLY, num_areas_horizontally: int = INPUT_AREAS_HORIZONTALLY) -> gpd.GeoDataFrame:
     """
     Returns both input area geometries and the tile row and column index ranges that cover them.
     """
@@ -139,7 +140,7 @@ def aoi_to_input_areas(aoi: Polygon, num_areas_vertically: int = INPUT_AREAS_VER
                 }
             })
 
-    input_areas_gdf = gpd.GeoDataFrame(input_areas, crs=aoi.crs)
+    input_areas_gdf = gpd.GeoDataFrame(input_areas, crs=crs)
     return input_areas_gdf
 
 def input_area_to_input_image(input_area: Polygon) -> np.ndarray:

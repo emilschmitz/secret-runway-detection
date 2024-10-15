@@ -86,11 +86,11 @@ def dummy_model():
 def test_point_to_aoi_southeast(sample_point):
     aoi_polygon = point_to_aoi_southeast(sample_point)
     expected_coords = [
-        (sample_point.x, sample_point.y + AOI_HEIGHT),  # Northwest corner
-        (sample_point.x + AOI_WIDTH, sample_point.y + AOI_HEIGHT),  # Northeast corner
-        (sample_point.x + AOI_WIDTH, sample_point.y),  # Southeast corner
         (sample_point.x, sample_point.y),  # Southwest corner
-        (sample_point.x, sample_point.y + AOI_HEIGHT)  # Close polygon
+        (sample_point.x + AOI_WIDTH, sample_point.y),  # Southeast corner
+        (sample_point.x + AOI_WIDTH, sample_point.y - AOI_HEIGHT),  # Northeast corner
+        (sample_point.x, sample_point.y - AOI_HEIGHT),  # Northwest corner
+        (sample_point.x, sample_point.y)  # Close polygon
     ]
     assert list(aoi_polygon.exterior.coords) == expected_coords, "AOI polygon coordinates mismatch."
 
