@@ -37,6 +37,9 @@ INPUT_IMAGE_WIDTH = 224
 INPUT_AREAS_VERTICALLY = 10  
 INPUT_AREAS_HORIZONTALLY = 10
 
+TILES_PER_AREA_LEN = 200  # side of one input area there should fit exactly this many tiles
+
+RANDOM_SEED = 42
 
 def point_to_aoi_southeast(point: Point, crs) -> Polygon:
     """
@@ -54,6 +57,62 @@ def point_to_aoi_southeast(point: Point, crs) -> Polygon:
         (minx, miny),  # Southwest corner
         (minx, maxy)   # Close polygon
     ])
+
+def landing_strips_to_input_areas(landing_strips: gpd.GeoDataFrame, num_areas: int) -> gpd.GeoDataFrame:
+    """
+    From a list of landing strips, create input areas, each containing one or more strips.
+    Areas will not overlap.
+
+    Parameters:
+    - landing_strips: GeoDataFrame containing landing strip geometries.
+    - num_areas: The number of input areas to create.
+
+    Returns:
+    - GeoDataFrame containing input area polygons.
+    """
+    from sklearn.cluster import KMeans
+
+    # Ensure there are landing strips to process
+    if landing_strips.empty:
+        raise ValueError("The landing_strips GeoDataFrame is empty.")
+
+    # Calculate centroids of landing strips for clustering
+    landing_strips['centroid'] = landing_strips.geometry.centroid
+
+    # Extract coordinates for clustering
+    coords = np.array([[geom.x, geom.y] for geom in landing_strips['centroid']])
+
+    # Handle cases where num_areas is greater than the number of landing strips
+    num_areas = min(num_areas, len(landing_strips))
+
+    # Perform K-Means clustering
+    kmeans = KMeans(n_clusters=num_areas, random_state=42)
+    landing_strips['cluster'] = kmeans.fit_predict(coords)
+
+    # Create input area polygons by aggregating strips in each cluster
+    input_areas = []
+    for cluster_id in range(num_areas):
+        cluster_strips = landing_strips[landing_strips['cluster'] == cluster_id]
+        # Union of all strips in the cluster
+        union_geom = cluster_strips.unary_union
+        # Create a convex hull around the unioned geometry
+        convex_hull = union_geom.convex_hull
+        input_areas.append({
+            'cluster_id': cluster_id,
+            'geometry': convex_hull
+        })
+
+    # Create GeoDataFrame for input areas
+    input_areas_gdf = gpd.GeoDataFrame(input_areas, crs=landing_strips.crs)
+
+    # Clean up temporary columns
+    landing_strips.drop(columns=['centroid', 'cluster'], inplace=True)
+
+    return input_areas_gdf
+
+
+def point_to_input_area_southeast(point: Point, crs: pyproj.crs) -> Polygon:
+    ...
 
 def aoi_to_tiles(aoi: Polygon) -> gpd.GeoDataFrame:
     """
@@ -143,7 +202,14 @@ def aoi_to_input_areas(aoi: Polygon, crs: pyproj.CRS, num_areas_vertically: int 
     input_areas_gdf = gpd.GeoDataFrame(input_areas, crs=crs)
     return input_areas_gdf
 
-def input_area_to_input_image(input_area: Polygon) -> np.ndarray:
+def input_area_to_has_strip_tensor(landing_strips: gpd.GeoDataFrame, input_area: Polygon, input_area_crs: pyproj.crs, tiles_per_area_len=TILES_PER_AREA_LEN) -> torch.Tensor:
+    """
+    Outputs a tensor of shape TILES_PER_AREA_LEN x TILES_PER_AREA_LEN indicating whether each tile has a landing strip.
+    """
+    # We need to check that the landing strips have their own crs
+    ...
+
+def input_area_to_input_image(input_area: Polygon, input_area_crs: pyproj.crs) -> np.ndarray:
     """
     Reads the satellite imagery corresponding to the input area and returns it as a NumPy array.
     """
@@ -199,19 +265,26 @@ def make_label_tensor(input_image_polygon: Polygon, landing_strips: gpd.GeoDataF
     return label_tensor.float()
 
 class LandingStripDataset(torch.utils.data.Dataset):
-    def __init__(self, input_image_polygons, landing_strips):
-        self.input_image_polygons = input_image_polygons
-        self.landing_strips = landing_strips
+    def __init__(self, input_images, landing_strips_idxs):
+        ...
 
-    def __len__(self):
-        return len(self.input_image_polygons)
+def make_train_set(input_areas: gpd.GeoDataFrame, landing_strips: gpd.GeoDataFrame) -> LandingStripDataset:
+    """
+    Creates a PyTorch Dataset for training the model.
+    """
+    input_image_tensors = []
+    has_strip_tensors = []
+    for _, input_area_row in input_areas.iterrows():
+        input_area = input_area_row['geometry']
+        input_image = input_area_to_input_image(input_area)
+        input_image_tensor = torch.tensor(input_image)
+        input_image_tensors.append(input_image_tensor)
 
-    def __getitem__(self, idx):
-        input_image_polygon = self.input_image_polygons.iloc[idx].geometry
-        input_image = input_area_to_input_image(input_image_polygon)
-        input_tensor = make_input_tensor(input_image)
-        label_tensor = make_label_tensor(input_image_polygon, self.landing_strips)
-        return input_tensor, label_tensor
+        has_strip = input_area_to_has_strip_tensor(landing_strips, input_area)
+        has_strip_tensors.append(has_strip)
+
+    dataset = LandingStripDataset(input_image_tensors, has_strip_tensors)
+    return dataset
 
 def pad_output_tensor(output_tensor: torch.Tensor, idxs: dict) -> torch.Tensor:
     """
