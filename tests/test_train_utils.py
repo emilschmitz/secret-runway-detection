@@ -5,7 +5,7 @@ import pytest
 from shapely.geometry import Polygon
 import geopandas as gpd
 import torch
-from train_utils import (
+from src.train_utils import (
     point_to_input_area_southeast,
     landing_strips_to_enclosing_input_areas,
     input_area_to_has_strip_tensor,
@@ -172,6 +172,7 @@ def test_LandingStripDataset(sample_aoi):
     input_image_polygon = sample_aoi
     input_image_polygons = gpd.GeoDataFrame({'geometry': [input_image_polygon]}, crs='EPSG:32633')
     # Create a simple landing strip within the AOI
+
     landing_strip_polygon = Polygon([
         (5000, 5000),
         (7000, 5000),

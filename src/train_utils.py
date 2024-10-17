@@ -3,8 +3,11 @@ import pandas as pd
 import numpy as np
 import pyproj
 import torch
+from torch.utils.data import Dataset
 from shapely.geometry import Polygon, Point
 import os
+
+from dataset import LandingStripDataset
 
 # NB
 # Our tile indexes go from top to bottom and left to right
@@ -201,11 +204,7 @@ def make_label_tensor(input_image_polygon: Polygon, landing_strips: gpd.GeoDataF
 
     label_tensor = torch.from_numpy(label).unsqueeze(0)  # Add channel dimension
     return label_tensor.float()
-
-class LandingStripDataset(torch.utils.data.Dataset):
-    def __init__(self, input_images, landing_strips_idxs):
-        ...
-
+    
 def make_train_set(input_areas: gpd.GeoDataFrame, landing_strips: gpd.GeoDataFrame) -> LandingStripDataset:
     """
     Creates a PyTorch Dataset for training the model.

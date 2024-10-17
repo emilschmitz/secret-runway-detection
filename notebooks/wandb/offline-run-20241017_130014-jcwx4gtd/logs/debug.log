@@ -1,0 +1,45 @@
+2024-10-17 13:00:14,734 INFO    MainThread:2953567 [wandb_setup.py:_flush():79] Current SDK version is 0.18.3
+2024-10-17 13:00:14,734 INFO    MainThread:2953567 [wandb_setup.py:_flush():79] Configure stats pid to 2953567
+2024-10-17 13:00:14,734 INFO    MainThread:2953567 [wandb_setup.py:_flush():79] Loading settings from /home/emil/.config/wandb/settings
+2024-10-17 13:00:14,734 INFO    MainThread:2953567 [wandb_setup.py:_flush():79] Loading settings from /home/emil/Desktop/Secret Runway Detection/notebooks/wandb/settings
+2024-10-17 13:00:14,734 INFO    MainThread:2953567 [wandb_setup.py:_flush():79] Loading settings from environment variables: {'api_key': '***REDACTED***'}
+2024-10-17 13:00:14,734 INFO    MainThread:2953567 [wandb_setup.py:_flush():79] Applying setup settings: {'mode': None, '_disable_service': None}
+2024-10-17 13:00:14,734 INFO    MainThread:2953567 [wandb_setup.py:_flush():79] Inferring run settings from compute environment: {'program': '<python with no main file>'}
+2024-10-17 13:00:14,734 INFO    MainThread:2953567 [wandb_setup.py:_flush():79] Applying login settings: {}
+2024-10-17 13:00:14,734 INFO    MainThread:2953567 [wandb_init.py:_log_setup():532] Logging user logs to /home/emil/Desktop/Secret Runway Detection/notebooks/wandb/offline-run-20241017_130014-jcwx4gtd/logs/debug.log
+2024-10-17 13:00:14,735 INFO    MainThread:2953567 [wandb_init.py:_log_setup():533] Logging internal logs to /home/emil/Desktop/Secret Runway Detection/notebooks/wandb/offline-run-20241017_130014-jcwx4gtd/logs/debug-internal.log
+2024-10-17 13:00:14,735 INFO    MainThread:2953567 [wandb_init.py:_jupyter_setup():478] configuring jupyter hooks <wandb.sdk.wandb_init._WandbInit object at 0x777801b67b90>
+2024-10-17 13:00:14,735 INFO    MainThread:2953567 [wandb_init.py:init():617] calling init triggers
+2024-10-17 13:00:14,735 INFO    MainThread:2953567 [wandb_init.py:init():624] wandb.init called with sweep_config: {}
+config: {}
+2024-10-17 13:00:14,735 INFO    MainThread:2953567 [wandb_init.py:init():667] starting backend
+2024-10-17 13:00:14,735 INFO    MainThread:2953567 [wandb_init.py:init():671] sending inform_init request
+2024-10-17 13:00:14,737 INFO    MainThread:2953567 [backend.py:_multiprocessing_setup():104] multiprocessing start_methods=fork,spawn,forkserver, using: spawn
+2024-10-17 13:00:14,738 INFO    MainThread:2953567 [wandb_init.py:init():684] backend started and connected
+2024-10-17 13:00:14,741 INFO    MainThread:2953567 [wandb_run.py:_label_probe_notebook():1346] probe notebook
+2024-10-17 13:00:14,742 INFO    MainThread:2953567 [wandb_init.py:init():779] updated telemetry
+2024-10-17 13:00:14,749 INFO    MainThread:2953567 [wandb_init.py:init():812] communicating run to backend with 90.0 second timeout
+2024-10-17 13:00:35,577 WARNING MainThread:2953567 [wandb_init.py:init():1256] interrupted
+Traceback (most recent call last):
+  File "/home/emil/Desktop/Secret Runway Detection/venv/lib/python3.11/site-packages/wandb/sdk/wandb_init.py", line 1252, in init
+    return wi.init()
+           ^^^^^^^^^
+  File "/home/emil/Desktop/Secret Runway Detection/venv/lib/python3.11/site-packages/wandb/sdk/wandb_init.py", line 815, in init
+    result = run_init_handle.wait(
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/emil/Desktop/Secret Runway Detection/venv/lib/python3.11/site-packages/wandb/sdk/lib/mailbox.py", line 283, in wait
+    found, abandoned = self._slot._get_and_clear(timeout=wait_timeout)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/emil/Desktop/Secret Runway Detection/venv/lib/python3.11/site-packages/wandb/sdk/lib/mailbox.py", line 130, in _get_and_clear
+    if self._wait(timeout=timeout):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/emil/Desktop/Secret Runway Detection/venv/lib/python3.11/site-packages/wandb/sdk/lib/mailbox.py", line 126, in _wait
+    return self._event.wait(timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/emil/mambaforge/envs/ml/lib/python3.11/threading.py", line 622, in wait
+    signaled = self._cond.wait(timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/emil/mambaforge/envs/ml/lib/python3.11/threading.py", line 324, in wait
+    gotit = waiter.acquire(True, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt

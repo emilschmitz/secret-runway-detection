@@ -6,7 +6,7 @@ from shapely.geometry import Polygon, Point
 import geopandas as gpd
 import torch
 import os
-from inference_utils import (
+from src.inference_utils import (
     point_to_aoi_southeast,
     aoi_to_tiles,
     aoi_to_input_areas,

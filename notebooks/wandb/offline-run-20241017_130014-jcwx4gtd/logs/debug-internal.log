@@ -1,0 +1,7 @@
+{"time":"2024-10-17T13:00:14.743764989+02:00","level":"INFO","msg":"using version","core version":"0.18.3"}
+{"time":"2024-10-17T13:00:14.743824308+02:00","level":"INFO","msg":"created symlink","path":"/home/emil/Desktop/Secret Runway Detection/notebooks/wandb/offline-run-20241017_130014-jcwx4gtd/logs/debug-core.log"}
+{"time":"2024-10-17T13:00:14.759528235+02:00","level":"INFO","msg":"created new stream","id":"jcwx4gtd"}
+{"time":"2024-10-17T13:00:14.759584359+02:00","level":"INFO","msg":"stream: started","id":"jcwx4gtd"}
+{"time":"2024-10-17T13:00:14.759670918+02:00","level":"INFO","msg":"handler: started","stream_id":{"value":"jcwx4gtd"}}
+{"time":"2024-10-17T13:00:14.759629161+02:00","level":"INFO","msg":"writer: Do: started","stream_id":{"value":"jcwx4gtd"}}
+{"time":"2024-10-17T13:00:14.759630764+02:00","level":"INFO","msg":"sender: started","stream_id":{"value":"jcwx4gtd"}}

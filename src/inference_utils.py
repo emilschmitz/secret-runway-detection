@@ -6,7 +6,7 @@ import torch
 from shapely.geometry import Polygon, Point
 import os
 
-import train_utils
+import src.train_utils as train_utils
 
 # NB
 # Our tile indexes go from top to bottom and left to right

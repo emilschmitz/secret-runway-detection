@@ -1,0 +1,50 @@
+{"time":"2024-10-17T12:54:43.444352219+02:00","level":"INFO","msg":"using version","core version":"0.18.3"}
+{"time":"2024-10-17T12:54:43.444399664+02:00","level":"INFO","msg":"created symlink","path":"/home/emil/Desktop/Secret Runway Detection/notebooks/wandb/run-20241017_125443-ox6bewm6/logs/debug-core.log"}
+{"time":"2024-10-17T12:54:43.45162145+02:00","level":"ERROR","msg":"dialing: google: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information"}
+{"time":"2024-10-17T12:54:43.462267057+02:00","level":"INFO","msg":"created new stream","id":"ox6bewm6"}
+{"time":"2024-10-17T12:54:43.462315721+02:00","level":"INFO","msg":"stream: started","id":"ox6bewm6"}
+{"time":"2024-10-17T12:54:43.462358305+02:00","level":"INFO","msg":"sender: started","stream_id":{"value":"ox6bewm6"}}
+{"time":"2024-10-17T12:54:43.462351255+02:00","level":"INFO","msg":"writer: Do: started","stream_id":{"value":"ox6bewm6"}}
+{"time":"2024-10-17T12:54:43.462465885+02:00","level":"INFO","msg":"handler: started","stream_id":{"value":"ox6bewm6"}}
+{"time":"2024-10-17T12:54:43.861386723+02:00","level":"INFO","msg":"wandb-core","!BADKEY":null}
+{"time":"2024-10-17T12:54:43.862691545+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2024-10-17T12:54:47.49876552+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:54:47.538893851+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:54:47.97459495+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:55:14.73237313+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:55:14.772966787+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:55:14.803206764+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:55:14.808902337+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:55:16.220825567+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:55:16.245446982+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:55:18.539311483+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:55:18.552332161+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:55:29.957492449+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:55:30.014068157+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:56:59.03649407+02:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2024-10-17T12:57:31.314975221+02:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2024-10-17T12:58:05.662087795+02:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2024-10-17T12:58:44.832121911+02:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2024-10-17T12:58:48.868014689+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:58:48.906944625+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:58:50.742685984+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:58:50.747384531+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:58:53.716906218+02:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/files/esedx12/landing-strip-detection/ox6bewm6/file_stream\": dial tcp 35.186.228.49:443: connect: connection timed out"}
+{"time":"2024-10-17T12:58:54.057071551+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:58:54.097940057+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:58:54.098006465+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:58:54.098055176+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:59:01.066214449+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:59:01.071586318+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:59:01.117126931+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:59:01.123728262+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:59:02.39118141+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:59:02.396978022+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:59:02.897114689+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:59:02.902080466+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:59:04.944348627+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:59:04.984867456+02:00","level":"INFO","msg":"Pausing system monitor"}
+{"time":"2024-10-17T12:59:13.298183167+02:00","level":"INFO","msg":"Resuming system monitor"}
+{"time":"2024-10-17T12:59:13.321288287+02:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2024-10-17T12:59:13.321582926+02:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2024-10-17T12:59:34.490565292+02:00","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
