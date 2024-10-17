@@ -10,24 +10,13 @@ import os
 # Our tile indexes go from top to bottom and left to right
 # If the competition uses different indexes, we will adjust to it in method tensor_to_submission_csv
 
-# Important TODO: Make sure that image pixels, tiles, and AOI line up as they should
-# One tile is approximately 10x10 meters, which is one pixel in Sentinel-2 imagery
-# We will try our model on 224x224 pixel images, corresponding to roughly 2240x2240 meters
-
 # One image will be approx. 1500x1500 pixels
 TILE_SIDE_LEN = 10.0
-
-# NB: CHECKED WITH ORGANIZERS (this heigth-row and width-column is doesn't seem to make any sense)
-# TRANSPOSING FOR NOW
-AOI_HEIGHT = 15270.0  # in meters
-AOI_WIDTH = 15410.0   # in meters
 
 # ROWS_COUNT = 1541  # counts zero-indexed
 # COLUMNS_COUNT = 1527  
 ROWS_COUNT = 1527  # counts zero-indexed
 COLUMNS_COUNT = 1541
-
-assert (TILE_SIDE_LEN == AOI_HEIGHT / ROWS_COUNT) and (TILE_SIDE_LEN == AOI_WIDTH / COLUMNS_COUNT)
 
 INPUT_IMAGE_HEIGHT = 224  # in pixels
 INPUT_IMAGE_WIDTH = 224
@@ -70,7 +59,7 @@ def point_to_input_area_southeast(point: Point, crs: pyproj.CRS, num_tiles_per_a
     ])
 
 
-def landing_strips_to_input_areas(landing_strips: gpd.GeoDataFrame, num_tiles_per_area_side_len: int) -> gpd.GeoDataFrame:
+def landing_strips_to_enclosing_input_areas(landing_strips: gpd.GeoDataFrame, num_tiles_per_area_side_len: int) -> gpd.GeoDataFrame:
     """
     From a list of landing strips, create input areas, each containing one strip.
     Areas may overlap; logs info about overlaps.
@@ -141,6 +130,18 @@ def landing_strips_to_input_areas(landing_strips: gpd.GeoDataFrame, num_tiles_pe
 
     return input_areas
 
+def landing_strips_to_big_area(landing_strips: gpd.GeoDataFrame) -> Polygon:
+    """
+    From a list of landing strips, create a big area that contains all strips.
+    """
+    ...
+
+def big_area_to_input_areas(big_area: Polygon, num_tiles_per_area_side_len: int) -> gpd.GeoDataFrame:
+    """
+    Divides a big area, either arbitrary or an AOI, into smaller input areas.
+    """
+    ...
+
 def input_area_to_has_strip_tensor(landing_strips: gpd.GeoDataFrame, input_area: Polygon, input_area_crs: pyproj.crs, tiles_per_area_len=TILES_PER_AREA_LEN) -> torch.Tensor:
     """
     Outputs a tensor of shape TILES_PER_AREA_LEN x TILES_PER_AREA_LEN indicating whether each tile has a landing strip.
@@ -152,9 +153,7 @@ def input_area_to_input_image(input_area: Polygon, input_area_crs: pyproj.crs) -
     """
     Reads the satellite imagery corresponding to the input area and returns it as a NumPy array.
     """
-    # Placeholder implementation; in reality, you would read the image data from files or a database
-    # For this example, we will generate a dummy image array
-    # Assume that the image data is stored in a larger NumPy array representing the entire AOI
+    # Placeholder implementation
     # For the purpose of this function, we will return a dummy array
     num_bands = 3  # For example, RGB bands
     input_image = np.zeros((num_bands, INPUT_IMAGE_HEIGHT, INPUT_IMAGE_WIDTH), dtype=np.float32)

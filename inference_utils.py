@@ -6,6 +6,8 @@ import torch
 from shapely.geometry import Polygon, Point
 import os
 
+import train_utils
+
 # NB
 # Our tile indexes go from top to bottom and left to right
 # If the competition uses different indexes, we will adjust to it in method tensor_to_submission_csv
@@ -165,8 +167,8 @@ def run_inference_on_aoi(aoi: Polygon, model: torch.nn.Module, threshold: float)
     for _, input_area_row in input_areas.iterrows():
         input_area = input_area_row['geometry']
         idxs = input_area_row['idxs']
-        input_image = input_area_to_input_image(input_area)
-        input_tensor = make_input_tensor(input_image)
+        input_image = train_utils.input_area_to_input_image(input_area)
+        input_tensor = train_utils.make_input_tensor(input_image)
         with torch.no_grad():
             output_tensor = model(input_tensor)
             output_tensor = output_tensor.squeeze(0).squeeze(0)  # Assuming output shape is (1, 1, H, W)
