@@ -34,7 +34,7 @@ from shapely.geometry import Polygon, Point
 import matplotlib.pyplot as plt
 
 # Import functions and constants from train_utils
-from src.train_utils import (
+from secret_runway_detection.train_utils import (
     landing_strips_to_enclosing_input_areas,
     input_area_to_input_image,
     make_label_tensor,

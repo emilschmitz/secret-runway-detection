@@ -5,7 +5,7 @@ import pytest
 from shapely.geometry import Polygon
 import geopandas as gpd
 import torch
-from src.train_utils import (
+from secret_runway_detection.train_utils import (
     point_to_input_area_southeast,
     landing_strips_to_enclosing_input_areas,
     input_area_to_has_strip_tensor,

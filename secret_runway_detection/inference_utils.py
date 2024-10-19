@@ -6,7 +6,7 @@ import torch
 from shapely.geometry import Polygon, Point
 import os
 
-import src.train_utils as train_utils
+import secret_runway_detection.train_utils as train_utils
 
 # NB
 # Our tile indexes go from top to bottom and left to right
