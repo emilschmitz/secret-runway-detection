@@ -1,22 +1,25 @@
+from io import BytesIO
 import logging
 import geopandas as gpd
 import pandas as pd
 import numpy as np
 import pyproj
 import requests
+import shapely
 import torch
-from torch.utils.data import Dataset
 from shapely.geometry import Polygon, Point
-import os
 from PIL import Image
 import ee
 import numpy as np
 from shapely.geometry import mapping
 import geopandas as gpd
-import geemap
-from datetime import datetime, timedelta
+import random
 
 from secret_runway_detection.dataset import LandingStripDataset
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # NB
 # Our tile indexes go from top to bottom and left to right
@@ -41,6 +44,8 @@ INPUT_AREAS_HORIZONTALLY = 10
 TILES_PER_AREA_LEN = 200  # side of one input area there should fit exactly this many tiles
 
 RANDOM_SEED = 42
+
+random.seed(RANDOM_SEED)
 
 def point_to_input_area_southeast(point: Point, crs: pyproj.CRS, num_tiles_per_area_side_len: int) -> Polygon:
     """
@@ -71,52 +76,66 @@ def point_to_input_area_southeast(point: Point, crs: pyproj.CRS, num_tiles_per_a
     ])
 
 
-def landing_strips_to_enclosing_input_areas(landing_strips: gpd.GeoDataFrame, num_tiles_per_area_side_len: int) -> gpd.GeoDataFrame:
+def landing_strips_to_enclosing_input_areas(
+    landing_strips: gpd.GeoDataFrame, 
+    num_tiles_per_area_side_len: int, 
+) -> gpd.GeoDataFrame:
     """
-    From a list of landing strips, create input areas, each containing one strip.
-    Areas may overlap; logs info about overlaps.
+    From a list of landing strips (LINESTRINGs), create input areas (POLYGONs), 
+    each containing one strip. Areas may overlap; logs info about overlaps.
 
     Parameters:
-    - landing_strips: GeoDataFrame containing landing strip geometries.
-    - num_tiles_per_area_side_len: Number of tiles per side length of each area.
+    - landing_strips (gpd.GeoDataFrame): GeoDataFrame containing landing strip geometries.
+    - num_tiles_per_area_side_len (int): Number of tiles per side length of each area.
+    - TILE_SIDE_LEN (float): Side length of a single tile in meters.
 
     Returns:
-    - GeoDataFrame containing input area polygons.
+    - gpd.GeoDataFrame: GeoDataFrame containing input area polygons.
     """
-    import random
-    random.seed(RANDOM_SEED)
-
-    area_size = num_tiles_per_area_side_len * TILE_SIDE_LEN  # in meters
+    area_side_len = num_tiles_per_area_side_len * TILE_SIDE_LEN  # in meters
 
     # Initialize an empty GeoDataFrame for input areas
     input_areas = gpd.GeoDataFrame(columns=['geometry'], crs=landing_strips.crs)
 
     overlap_count = 0  # Counter for overlapping areas
 
-    for _, strip in landing_strips.iterrows():
-        # Get the geometry of the strip
+    for idx, strip in landing_strips.iterrows():
         strip_geom = strip.geometry
 
-        # Generate random point c within the strip's bounds
-        minx, miny, maxx, maxy = strip_geom.bounds
-        rand_x = random.uniform(minx, maxx)
-        rand_y = random.uniform(miny, maxy)
-        rand_point = Point(rand_x, rand_y)
+        # Validate geometry: must be a LineString, valid, not empty, and finite coordinates
+        if not isinstance(strip_geom, shapely.geometry.linestring.LineString):
+            print(f"Skipping non-LineString geometry at index {idx}.")
+            continue
 
-        if not strip_geom.contains(rand_point):
-            rand_point = strip_geom.centroid
+        if not strip_geom.is_valid or strip_geom.is_empty:
+            print(f"Skipping invalid or empty LineString at index {idx}.")
+            continue
 
+        # Check for finite coordinates
+        coords = list(strip_geom.coords)
+        if any([not np.isfinite(x) or not np.isfinite(y) for x, y in coords]):
+            print(f"Skipping LineString with infinite coordinates at index {idx}.")
+            continue
+
+        # Sample a random distance along the LineString's length
+        random_distance = random.uniform(0, strip_geom.length)
+
+        # Interpolate the point at the sampled distance
+        rand_point = strip_geom.interpolate(random_distance)
+
+        # Assign the sampled point to 'c' for further processing
         c = rand_point
 
-        # Generate random offsets
-        offset_x = random.uniform(0, area_size)
-        offset_y = random.uniform(0, area_size)
+        # Sample a random number 'n' from 0 to area_side_len
+        n = random.uniform(0, area_side_len)
 
-        minx_area = c.x - offset_x
-        miny_area = c.y - offset_y
-        maxx_area = minx_area + area_size
-        maxy_area = miny_area + area_size
+        # Calculate min and max coordinates based on 'n'
+        minx_area = c.x - (area_side_len - n)
+        maxx_area = c.x + n
+        miny_area = c.y - (area_side_len - n)
+        maxy_area = c.y + n
 
+        # Create the input area polygon
         area_polygon = Polygon([
             (minx_area, miny_area),
             (maxx_area, miny_area),
@@ -125,21 +144,31 @@ def landing_strips_to_enclosing_input_areas(landing_strips: gpd.GeoDataFrame, nu
             (minx_area, miny_area)
         ])
 
-        # Check if area_polygon overlaps with any existing areas
+        # Validate the created polygon
+        if not area_polygon.is_valid:
+            print(f"Invalid polygon created for LineString at index {idx}. Attempting to repair.")
+            area_polygon = area_polygon.buffer(0)
+            if not area_polygon.is_valid:
+                print(f"Failed to repair polygon for LineString at index {idx}. Skipping.")
+                continue
+
+        # Check for overlaps with existing input areas
         if not input_areas.empty:
-            possible_matches_index = input_areas.sindex.intersection(area_polygon.bounds)
-            possible_matches = input_areas.iloc[list(possible_matches_index)]
+            possible_matches_index = list(input_areas.sindex.intersection(area_polygon.bounds))
+            possible_matches = input_areas.iloc[possible_matches_index]
             overlaps = possible_matches.intersects(area_polygon).any()
             if overlaps:
                 overlap_count += 1
         else:
             overlaps = False
 
-        # Append the area regardless of overlaps
-        input_areas = pd.concat([input_areas, gpd.GeoDataFrame([{'geometry': area_polygon}], crs=input_areas.crs)], ignore_index=True)
+        # Append the new input area
+        input_areas = pd.concat([
+            input_areas, 
+            gpd.GeoDataFrame([{'geometry': area_polygon}], crs=landing_strips.crs)
+        ], ignore_index=True)
 
     print(f"Total overlapping areas: {overlap_count}")
-
     return input_areas
 
 def landing_strips_to_big_area(landing_strips: gpd.GeoDataFrame) -> Polygon:
@@ -153,13 +182,6 @@ def big_area_to_input_areas(big_area: Polygon, num_tiles_per_area_side_len: int)
     Divides a big area, either arbitrary or an AOI, into smaller input areas.
     """
     ...
-
-import geopandas as gpd
-import pandas as pd
-import numpy as np
-import pyproj
-import torch
-from shapely.geometry import Polygon
 
 def input_area_to_has_strip_tensor(
     landing_strips: gpd.GeoDataFrame, 
@@ -190,6 +212,7 @@ def input_area_to_has_strip_tensor(
     # 2. Ensure landing_strips GeoDataFrame is in the same CRS as input_area
     if landing_strips.crs != input_area_crs:
         landing_strips = landing_strips.to_crs(input_area_crs)
+        logging.info(f"Inside area-to-tensor method. Landing Strips on different CRS, reprojected to: {input_area_crs}")
 
     # 3. Filter out landing strips that do not overlap with the input area
     overlapping_strips = landing_strips[landing_strips.intersects(input_area)].copy()
@@ -241,18 +264,73 @@ def input_area_to_has_strip_tensor(
 
     return tensor
 
+def get_time_period_of_strips_on_area(strips: gpd.GeoDataFrame, area: Polygon, area_crs: pyproj.CRS) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """
+    Returns the time period of the strips that are on the specified area.
+    
+    Parameters:
+    - strips (gpd.GeoDataFrame): GeoDataFrame containing landing strip geometries with a 'yr' attribute (four-digit year).
+    - area (Polygon): The area polygon to check for overlapping strips.
+    - area_crs (pyproj.CRS): Coordinate Reference System of the area.
+    
+    Returns:
+    - tuple[pd.Timestamp, pd.Timestamp]: Start and end timestamps defining the smallest enclosing period.
+    
+    Raises:
+    - ValueError: If no strips overlap the area or 'yr' attribute is missing.
+    - TypeError: If the 'yr' attribute is not numeric.
+    """
+    # Ensure the strips are in the same CRS as the area
+    if strips.crs != area_crs:
+        strips = strips.to_crs(area_crs)
+    
+    # Filter strips that intersect the area
+    overlapping_strips = strips[strips.intersects(area)].copy()
+    logging.debug(f"Overlapping strips: {overlapping_strips}")
+    
+    if overlapping_strips.empty:
+        raise ValueError("No landing strips intersect the specified area.")
+    
+    # Check if 'yr' attribute exists
+    if 'yr' not in overlapping_strips.columns:
+        raise ValueError("'yr' attribute not found in the strips GeoDataFrame.")
+    
+    # Extract 'yr' attribute
+    yrs = overlapping_strips['yr']
+    
+    # Ensure 'yr' is numeric (integer)
+    if not pd.api.types.is_numeric_dtype(yrs):
+        raise TypeError("'yr' attribute must be numeric (four-digit year).")
+    
+    # Convert 'yr' to integer if not already
+    yrs = yrs.astype(int)
+    logging.debug(f"Strip years: {yrs}")
+    
+    # Find the earliest and latest years
+    min_year = yrs.min()
+    max_year = yrs.max()
+    
+    # Create pd.Timestamp objects for the start and end of the period
+    start_timestamp = pd.Timestamp(year=min_year, month=1, day=1)
+    end_timestamp = pd.Timestamp(year=max_year, month=12, day=31)
+    
+    return (start_timestamp, end_timestamp)
 
 def input_area_to_input_image(
     input_area: Polygon, 
-    input_area_crs: pyproj.CRS, 
-    input_image_width: int = 224, 
-    input_image_height: int = 224
+    image_data_start_date: pd.Timestamp,
+    image_data_end_date: pd.Timestamp,
+    input_area_crs: pyproj.CRS,
+    input_image_width: int = 512,  # Example default value
+    input_image_height: int = 512,  # Example default value
 ) -> np.ndarray:
     """
     Reads the satellite imagery corresponding to the input area and returns it as a NumPy array.
     
     Parameters:
     - input_area (Polygon): The area of interest.
+    - image_data_start_date (pd.Timestamp): Start date for the satellite image data.
+    - image_data_end_date (pd.Timestamp): End date for the satellite image data.
     - input_area_crs (pyproj.CRS): The CRS of the input area.
     - input_image_width (int): Desired image width in pixels.
     - input_image_height (int): Desired image height in pixels.
@@ -263,14 +341,22 @@ def input_area_to_input_image(
     # Ensure EE is initialized
     try:
         ee.Initialize()
+        logger.debug("Earth Engine initialized successfully.")
     except Exception as e:
-        ee.Authenticate()
-        ee.Initialize()
+        logger.info("Earth Engine not initialized. Attempting to authenticate.")
+        try:
+            ee.Authenticate()
+            ee.Initialize()
+            logger.debug("Earth Engine authenticated and initialized successfully.")
+        except Exception as auth_e:
+            logger.error(f"Earth Engine authentication failed: {auth_e}")
+            return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
 
     # Reproject input_area to WGS84 (EPSG:4326) for Earth Engine compatibility
     input_area_gdf = gpd.GeoDataFrame({'geometry': [input_area]}, crs=input_area_crs)
     if input_area_gdf.crs.to_string() != 'EPSG:4326':
         input_area_gdf = input_area_gdf.to_crs('EPSG:4326')
+        logger.debug("Input area reprojected to EPSG:4326.")
     input_area_wgs84 = input_area_gdf.iloc[0].geometry
 
     # Convert the input_area to GeoJSON-like dict
@@ -278,20 +364,25 @@ def input_area_to_input_image(
 
     # Convert to EE Geometry
     aoi = ee.Geometry.Polygon(input_area_geojson['coordinates'])
-
-    # Define the time period (e.g., last 12 months)
-    end_date = datetime.utcnow()
-    start_date = end_date - timedelta(days=365)
-    start_date_str = start_date.strftime('%Y-%m-%d')
-    end_date_str = end_date.strftime('%Y-%m-%d')
+    logger.debug("AOI (Area of Interest) created for Earth Engine.")
 
     # Load Sentinel-2 image collection
     collection = (
-        ee.ImageCollection('COPERNICUS/S2_SR')
-        .filterDate(start_date_str, end_date_str)
+        ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+        .filterDate(image_data_start_date, image_data_end_date)
         .filterBounds(aoi)
         .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
     )
+    try:
+        collection_size = collection.size().getInfo()
+        logger.debug(f"Found {collection_size} images in the Sentinel-2 collection.")
+    except Exception as e:
+        logger.error(f"Error retrieving collection size: {e}")
+        return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
+
+    if collection_size == 0:
+        logger.warning("No images found in the collection for the specified date range and area.")
+        return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
 
     # Apply cloud masking function
     def maskS2clouds(image):
@@ -303,20 +394,26 @@ def input_area_to_input_image(
         mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
         return image.updateMask(mask).divide(10000)
 
-    # Apply cloud masking and scaling to each image
     collection = collection.map(maskS2clouds)
+    logger.debug("Cloud masking applied to the image collection.")
 
     # Create a mean composite
     try:
         image = collection.mean()
+        logger.debug("Mean composite image created.")
     except Exception as e:
-        image = collection.median()
-        logging.warning(f"Error creating mean composite: {e}, falling back to median composite")
+        logger.warning(f"Error creating mean composite: {e}, falling back to median composite.")
+        try:
+            image = collection.median()
+            logger.debug("Median composite image created.")
+        except Exception as median_e:
+            logger.error(f"Error creating median composite: {median_e}")
+            return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
 
     # Select bands
     bands = ['B4', 'B3', 'B2']  # RGB bands
-
     image = image.select(bands)
+    logger.debug("RGB bands selected for the composite image.")
 
     # Define visualization parameters
     vis_params = {
@@ -335,30 +432,46 @@ def input_area_to_input_image(
         'max': vis_params['max'],
         'gamma': 1.4
     })
+    logger.debug(f"Thumbnail URL generated: {thumb_url}")
 
-    # Fetch the image from the URL
+    # Fetch the image from the URL with timeout
     try:
-        response = requests.get(thumb_url)
-        if response.status_code != 200:
-            print(f"Error fetching image: HTTP {response.status_code}")
-            return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
-        
-        # Open the image using PIL
-        img = Image.open(BytesIO(response.content)).convert('RGB')
-        
-        # Convert to NumPy array
-        img_np = np.array(img)
-        
-        # Normalize the image (already divided by 10000, adjust if necessary)
-        img_np = img_np.astype(np.float32) / 255.0  # Normalize to [0,1]
-        
-        # Transpose to (C, H, W)
-        img_np = np.transpose(img_np, (2, 0, 1))
-        
+        response = requests.get(thumb_url, timeout=30)  # 30 seconds timeout
+        response.raise_for_status()
+        logger.debug("Thumbnail image fetched successfully.")
+    except requests.exceptions.Timeout:
+        logger.error("Request timed out while fetching the thumbnail image.")
+        return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
+    except requests.exceptions.HTTPError as http_err:
+        logger.error(f"HTTP error occurred while fetching the thumbnail image: {http_err}")
+        return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
     except Exception as e:
-        print(f"Error retrieving image data: {e}")
-        # Return an array of zeros
-        img_np = np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
+        logger.error(f"An error occurred while fetching the thumbnail image: {e}")
+        return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
+
+    # Open the image using PIL
+    try:
+        img = Image.open(BytesIO(response.content)).convert('RGB')
+        logger.debug("Thumbnail image opened with PIL.")
+    except Exception as e:
+        logger.error(f"Error opening the thumbnail image with PIL: {e}")
+        return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
+
+    # Convert to NumPy array
+    try:
+        img_np = np.array(img)
+        logger.debug("Thumbnail image converted to NumPy array.")
+    except Exception as e:
+        logger.error(f"Error converting image to NumPy array: {e}")
+        return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
+
+    # Normalize the image (already divided by 10000, adjust if necessary)
+    img_np = img_np.astype(np.float32) / 255.0  # Normalize to [0,1]
+    logger.debug("Thumbnail image normalized to [0,1].")
+
+    # Transpose to (C, H, W)
+    img_np = np.transpose(img_np, (2, 0, 1))
+    logger.debug(f"Thumbnail image transposed to shape {img_np.shape}.")
 
     return img_np
 
