@@ -168,7 +168,7 @@ def run_inference_on_aoi(aoi: Polygon, model: torch.nn.Module, threshold: float)
         input_area = input_area_row['geometry']
         idxs = input_area_row['idxs']
         input_image = train_utils.input_area_to_input_image(input_area)
-        input_tensor = train_utils.make_input_tensor(input_image)
+        input_tensor = train_utils.make_input_image_tensor(input_image)
         with torch.no_grad():
             output_tensor = model(input_tensor)
             output_tensor = output_tensor.squeeze(0).squeeze(0)  # Assuming output shape is (1, 1, H, W)

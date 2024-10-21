@@ -14,16 +14,13 @@ import numpy as np
 from shapely.geometry import mapping
 import geopandas as gpd
 import random
+from scipy.ndimage.morphology import binary_dilation
 
 from secret_runway_detection.dataset import LandingStripDataset
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# NB
-# Our tile indexes go from top to bottom and left to right
-# If the competition uses different indexes, we will adjust to it in method tensor_to_submission_csv
 
 # One image will be approx. 1500x1500 pixels
 TILE_SIDE_LEN = 10.0
@@ -76,9 +73,16 @@ def point_to_input_area_southeast(point: Point, crs: pyproj.CRS, num_tiles_per_a
     ])
 
 
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Polygon, LineString
+import random
+import numpy as np
+
 def landing_strips_to_enclosing_input_areas(
     landing_strips: gpd.GeoDataFrame, 
     num_tiles_per_area_side_len: int, 
+    tile_side_len: float = TILE_SIDE_LEN  # in meters
 ) -> gpd.GeoDataFrame:
     """
     From a list of landing strips (LINESTRINGs), create input areas (POLYGONs), 
@@ -87,53 +91,63 @@ def landing_strips_to_enclosing_input_areas(
     Parameters:
     - landing_strips (gpd.GeoDataFrame): GeoDataFrame containing landing strip geometries.
     - num_tiles_per_area_side_len (int): Number of tiles per side length of each area.
-    - TILE_SIDE_LEN (float): Side length of a single tile in meters.
+    - tile_side_len (float): Side length of a single tile in meters.
 
     Returns:
     - gpd.GeoDataFrame: GeoDataFrame containing input area polygons.
     """
-    area_side_len = num_tiles_per_area_side_len * TILE_SIDE_LEN  # in meters
+    # Determine a suitable projected CRS (e.g., UTM zone) based on the landing strips
+    # For simplicity, we'll use UTM zone determined by the centroid of the landing strips
+    mean_longitude = landing_strips.geometry.unary_union.centroid.x
+    utm_zone = int((mean_longitude + 180) / 6) + 1
+    if landing_strips.geometry.unary_union.centroid.y >= 0:
+        utm_crs = f"EPSG:{32600 + utm_zone}"  # Northern hemisphere
+    else:
+        utm_crs = f"EPSG:{32700 + utm_zone}"  # Southern hemisphere
+
+    # Reproject landing strips to the projected CRS
+    landing_strips_proj = landing_strips.to_crs(utm_crs)
+
+    area_side_len = num_tiles_per_area_side_len * tile_side_len  # in meters
 
     # Initialize an empty GeoDataFrame for input areas
-    input_areas = gpd.GeoDataFrame(columns=['geometry'], crs=landing_strips.crs)
+    input_areas = gpd.GeoDataFrame(columns=['geometry'], crs=utm_crs)
 
     overlap_count = 0  # Counter for overlapping areas
 
-    for idx, strip in landing_strips.iterrows():
+    for idx, strip in landing_strips_proj.iterrows():
         strip_geom = strip.geometry
 
         # Validate geometry: must be a LineString, valid, not empty, and finite coordinates
-        if not isinstance(strip_geom, shapely.geometry.linestring.LineString):
-            print(f"Skipping non-LineString geometry at index {idx}.")
-            continue
+        if not isinstance(strip_geom, LineString):
+            logger.error(f"Skipping non-LineString geometry at index {idx}.")
+            raise
 
         if not strip_geom.is_valid or strip_geom.is_empty:
-            print(f"Skipping invalid or empty LineString at index {idx}.")
-            continue
+            logger.error(f"Skipping invalid or empty LineString at index {idx}.")
+            raise
 
         # Check for finite coordinates
         coords = list(strip_geom.coords)
         if any([not np.isfinite(x) or not np.isfinite(y) for x, y in coords]):
-            print(f"Skipping LineString with infinite coordinates at index {idx}.")
-            continue
+            logger.error(f"Skipping LineString with infinite coordinates at index {idx}.")
+            raise
 
         # Sample a random distance along the LineString's length
         random_distance = random.uniform(0, strip_geom.length)
 
         # Interpolate the point at the sampled distance
-        rand_point = strip_geom.interpolate(random_distance)
+        c = strip_geom.interpolate(random_distance)
 
-        # Assign the sampled point to 'c' for further processing
-        c = rand_point
+        # Generate random offsets for X and Y axes
+        offset_x = random.uniform(0, area_side_len)
+        offset_y = random.uniform(0, area_side_len)
 
-        # Sample a random number 'n' from 0 to area_side_len
-        n = random.uniform(0, area_side_len)
-
-        # Calculate min and max coordinates based on 'n'
-        minx_area = c.x - (area_side_len - n)
-        maxx_area = c.x + n
-        miny_area = c.y - (area_side_len - n)
-        maxy_area = c.y + n
+        # Calculate min and max coordinates for the input area polygon
+        minx_area = c.x - (area_side_len - offset_x)
+        maxx_area = c.x + offset_x
+        miny_area = c.y - (area_side_len - offset_y)
+        maxy_area = c.y + offset_y
 
         # Create the input area polygon
         area_polygon = Polygon([
@@ -146,11 +160,11 @@ def landing_strips_to_enclosing_input_areas(
 
         # Validate the created polygon
         if not area_polygon.is_valid:
-            print(f"Invalid polygon created for LineString at index {idx}. Attempting to repair.")
+            logger.info(f"Invalid polygon created for LineString at index {idx}. Attempting to repair.")
             area_polygon = area_polygon.buffer(0)
             if not area_polygon.is_valid:
-                print(f"Failed to repair polygon for LineString at index {idx}. Skipping.")
-                continue
+                logger.error(f"Failed to repair polygon for LineString at index {idx}. Skipping.")
+                raise
 
         # Check for overlaps with existing input areas
         if not input_areas.empty:
@@ -165,11 +179,16 @@ def landing_strips_to_enclosing_input_areas(
         # Append the new input area
         input_areas = pd.concat([
             input_areas, 
-            gpd.GeoDataFrame([{'geometry': area_polygon}], crs=landing_strips.crs)
+            gpd.GeoDataFrame([{'geometry': area_polygon}], crs=utm_crs)
         ], ignore_index=True)
 
-    print(f"Total overlapping areas: {overlap_count}")
+    logger.info(f"Total overlapping areas: {overlap_count}")
+
+    # Reproject input areas back to the original CRS if needed
+    input_areas = input_areas.to_crs(landing_strips.crs)
+
     return input_areas
+
 
 def landing_strips_to_big_area(landing_strips: gpd.GeoDataFrame) -> Polygon:
     """
@@ -186,8 +205,9 @@ def big_area_to_input_areas(big_area: Polygon, num_tiles_per_area_side_len: int)
 def input_area_to_has_strip_tensor(
     landing_strips: gpd.GeoDataFrame, 
     input_area: Polygon, 
-    input_area_crs: pyproj.crs.CRS, 
-    tiles_per_area_len: int = 200
+    input_area_crs: pyproj.CRS, 
+    tiles_per_area_len: int = TILES_PER_AREA_LEN,
+    num_buffer_tiles: int = 20,
 ) -> torch.Tensor:
     """
     Converts an input area and its landing strips into a binary tensor indicating the presence of landing strips in each tile.
@@ -195,8 +215,10 @@ def input_area_to_has_strip_tensor(
     Parameters:
     - landing_strips (gpd.GeoDataFrame): GeoDataFrame containing landing strip geometries.
     - input_area (Polygon): Shapely Polygon representing the area of interest.
-    - input_area_crs (pyproj.crs.CRS): Coordinate Reference System of the input area.
+    - input_area_crs (pyproj.CRS): Coordinate Reference System of the input area.
     - tiles_per_area_len (int): Number of tiles along one side of the area (default is 200).
+    - num_buffer_tiles (int): Number of tiles to buffer around the landing strips 
+        (default is 20, see https://zindi.africa/competitions/geoai-amazon-basin-secret-runway-detection-challenge/discussions/22422).
 
     Returns:
     - torch.Tensor: A square tensor of shape (tiles_per_area_len, tiles_per_area_len) with binary values.
@@ -207,7 +229,7 @@ def input_area_to_has_strip_tensor(
     height = maxy - miny
 
     if not np.isclose(width, height, atol=1e-6):
-        raise ValueError(f"Input area is not square: width={width}, height={height}")
+        logging.warning(f"Input area is not square: width={width}, height={height}, ratio={width/height}")
 
     # 2. Ensure landing_strips GeoDataFrame is in the same CRS as input_area
     if landing_strips.crs != input_area_crs:
@@ -259,10 +281,32 @@ def input_area_to_has_strip_tensor(
     # 8. Convert the boolean series to a NumPy array and reshape it
     has_strip_matrix = has_strip.values.reshape((tiles_per_area_len, tiles_per_area_len))
 
-    # 9. Convert the NumPy array to a PyTorch tensor of type float
+    # 9. Add buffer region around the tiles with value 1
+    has_strip_matrix = add_buffer_to_label(has_strip_matrix, num_buffer_tiles)
+
+    # 10. Convert the NumPy array to a PyTorch tensor of type float
     tensor = torch.tensor(has_strip_matrix, dtype=torch.float32)
 
     return tensor
+
+def add_buffer_to_label(label: np.ndarray, num_buffer_tiles: int) -> np.ndarray:
+    """
+    Adds a buffer region around the tiles with value 1 in the label array.
+
+    Parameters:
+    - label (np.ndarray): 2D array representing the label mask.
+    - num_buffer_tiles (int): Number of pixels to buffer around the tiles with value 1.
+
+    Returns:
+    - np.ndarray: The label array with the buffer added.
+    """
+    # Create a structuring element for dilation
+    structure = np.ones((2 * num_buffer_tiles + 1, 2 * num_buffer_tiles + 1), dtype=bool)
+
+    # Apply binary dilation to add buffer
+    buffered_label = binary_dilation(label, structure=structure).astype(np.uint8)
+
+    return buffered_label
 
 def get_time_period_of_strips_on_area(strips: gpd.GeoDataFrame, area: Polygon, area_crs: pyproj.CRS) -> tuple[pd.Timestamp, pd.Timestamp]:
     """
@@ -321,8 +365,8 @@ def input_area_to_input_image(
     image_data_start_date: pd.Timestamp,
     image_data_end_date: pd.Timestamp,
     input_area_crs: pyproj.CRS,
-    input_image_width: int = 512,  # Example default value
-    input_image_height: int = 512,  # Example default value
+    input_image_width: int = INPUT_IMAGE_WIDTH,  # Example default value
+    input_image_height: int = INPUT_IMAGE_HEIGHT,  # Example default value
 ) -> np.ndarray:
     """
     Reads the satellite imagery corresponding to the input area and returns it as a NumPy array.
@@ -352,12 +396,15 @@ def input_area_to_input_image(
             logger.error(f"Earth Engine authentication failed: {auth_e}")
             return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
 
+    logger.debug(f"Inputted area: {input_area}")
+
     # Reproject input_area to WGS84 (EPSG:4326) for Earth Engine compatibility
     input_area_gdf = gpd.GeoDataFrame({'geometry': [input_area]}, crs=input_area_crs)
     if input_area_gdf.crs.to_string() != 'EPSG:4326':
         input_area_gdf = input_area_gdf.to_crs('EPSG:4326')
         logger.debug("Input area reprojected to EPSG:4326.")
     input_area_wgs84 = input_area_gdf.iloc[0].geometry
+    logger.debug(f"Input area after reprojection: {input_area_wgs84}")
 
     # Convert the input_area to GeoJSON-like dict
     input_area_geojson = mapping(input_area_wgs84)
@@ -476,7 +523,7 @@ def input_area_to_input_image(
     return img_np
 
 
-def make_input_tensor(input_image: np.ndarray) -> torch.Tensor:
+def make_input_image_tensor(input_image: np.ndarray) -> torch.Tensor:
     """
     Converts the input image NumPy array into a PyTorch tensor suitable for model input.
     """
@@ -485,40 +532,6 @@ def make_input_tensor(input_image: np.ndarray) -> torch.Tensor:
     input_tensor = input_tensor.unsqueeze(0)  # Add batch dimension
     return input_tensor
 
-def make_label_tensor(input_image_polygon: Polygon, landing_strips: gpd.GeoDataFrame) -> torch.Tensor:
-    """
-    Creates a label tensor for the input image based on the landing strips present.
-    """
-    # Create a binary mask where landing strips are present
-    label = np.zeros((INPUT_IMAGE_HEIGHT, INPUT_IMAGE_WIDTH), dtype=np.uint8)
-
-    # Get the bounds of the input image polygon
-    minx, miny, maxx, maxy = input_image_polygon.bounds
-
-    # Pixel size in meters
-    pixel_size_x = (maxx - minx) / INPUT_IMAGE_WIDTH
-    pixel_size_y = (maxy - miny) / INPUT_IMAGE_HEIGHT
-
-    # Iterate over landing strips
-    for _, strip in landing_strips.iterrows():
-        if strip.geometry.intersects(input_image_polygon):
-            # Get the intersection geometry
-            intersection = strip.geometry.intersection(input_image_polygon)
-            if not intersection.is_empty:
-                # Rasterize the intersection geometry onto the label array
-                # Map geometry coordinates to pixel indices
-                xs, ys = intersection.exterior.coords.xy
-                col_indices = ((np.array(xs) - minx) / pixel_size_x).astype(np.int32)
-                row_indices = ((maxy - np.array(ys)) / pixel_size_y).astype(np.int32)
-                # Ensure indices are within bounds
-                col_indices = np.clip(col_indices, 0, INPUT_IMAGE_WIDTH - 1)
-                row_indices = np.clip(row_indices, 0, INPUT_IMAGE_HEIGHT - 1)
-                # Set the pixels corresponding to the landing strip to 1
-                label[row_indices, col_indices] = 1
-
-    label_tensor = torch.from_numpy(label).unsqueeze(0)  # Add channel dimension
-    return label_tensor.float()
-    
 def make_train_set(input_areas: gpd.GeoDataFrame, landing_strips: gpd.GeoDataFrame) -> LandingStripDataset:
     """
     Creates a PyTorch Dataset for training the model.

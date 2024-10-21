@@ -10,7 +10,7 @@ from secret_runway_detection.train_utils import (
     landing_strips_to_enclosing_input_areas,
     input_area_to_has_strip_tensor,
     input_area_to_input_image,
-    make_input_tensor,
+    make_input_image_tensor,
     make_label_tensor,
     LandingStripDataset,
     make_train_set
@@ -136,7 +136,7 @@ def test_make_input_tensor():
     # Create a dummy input image
     input_image = np.zeros((3, INPUT_IMAGE_HEIGHT, INPUT_IMAGE_WIDTH), dtype=np.float32)
     
-    input_tensor = make_input_tensor(input_image)
+    input_tensor = make_input_image_tensor(input_image)
     
     # Expected shape: (1, 3, 224, 224)
     expected_shape = (1, 3, INPUT_IMAGE_HEIGHT, INPUT_IMAGE_WIDTH)
