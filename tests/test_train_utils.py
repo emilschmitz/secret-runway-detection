@@ -1,17 +1,26 @@
 # tests/test_train_utils.py
 
+import os
+import sys
 import numpy as np
 import pytest
 from shapely.geometry import Polygon
 import geopandas as gpd
 import torch
+
+# # Add the src directory to the sys.path
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'secret_runway_detection')))
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+print(os.getcwd())
+
 from secret_runway_detection.train_utils import (
+    add_buffer_to_label,
     point_to_input_area_southeast,
     landing_strips_to_enclosing_input_areas,
     input_area_to_has_strip_tensor,
     input_area_to_input_image,
     make_input_image_tensor,
-    make_label_tensor,
     LandingStripDataset,
     make_train_set
 )
@@ -145,7 +154,7 @@ def test_make_input_tensor():
     # Check the data type
     assert input_tensor.dtype == torch.float32, "Input tensor dtype is not float32."
 
-def test_make_label_tensor(sample_aoi):
+def test_input_area_to_has_strip_tensor(sample_aoi):
     """Test the make_label_tensor function."""
     input_image_polygon = sample_aoi
     # Create a simple landing strip within the AOI
@@ -158,7 +167,7 @@ def test_make_label_tensor(sample_aoi):
     ])
     landing_strips = gpd.GeoDataFrame({'geometry': [landing_strip_polygon]}, crs='EPSG:32633')
     
-    label_tensor = make_label_tensor(input_image_polygon, landing_strips)
+    label_tensor = input_area_to_has_strip_tensor(input_image_polygon, landing_strips)
     
     expected_shape = (1, INPUT_IMAGE_HEIGHT, INPUT_IMAGE_WIDTH)
     assert label_tensor.shape == expected_shape, f"Expected label tensor shape {expected_shape}, got {label_tensor.shape}."
@@ -195,3 +204,50 @@ def test_LandingStripDataset(sample_aoi):
     
     assert input_tensor.shape == expected_input_shape, f"Expected input tensor shape {expected_input_shape}, got {input_tensor.shape}."
     assert label_tensor.shape == expected_label_shape, f"Expected label tensor shape {expected_label_shape}, got {label_tensor.shape}."
+
+def test_add_buffer_to_label():
+    """
+    Test the add_buffer_to_label function.
+    """
+    # Input label array
+    label = np.array([
+        [0, 0, 1],
+        [0, 1, 0],
+        [1, 0, 0]
+    ], dtype=np.uint8)
+    
+    # Expected output with num_buffer_tiles == 1
+    expected_output = np.array([
+        [0, 1, 1],
+        [1, 1, 1],
+        [1, 1, 0]
+    ], dtype=np.uint8)
+    
+    # Call the function with num_buffer_tiles == 1
+    buffered_label = add_buffer_to_label(label, num_buffer_tiles=1)
+    
+    # Assert that the output matches the expected output
+    assert np.array_equal(buffered_label, expected_output), "Buffered label does not match expected output with num_buffer_tiles=1."
+    
+    # Test with num_buffer_tiles == 0 (should be the same as the input)
+    buffered_label_zero = add_buffer_to_label(label, num_buffer_tiles=0)
+    assert np.array_equal(buffered_label_zero, label), "Buffered label does not match input when num_buffer_tiles=0."
+    
+    # Test with num_buffer_tiles == 2
+    expected_output_2 = np.array([
+        [1, 1, 1],
+        [1, 1, 1],
+        [1, 1, 1]
+    ], dtype=np.uint8)
+    buffered_label_2 = add_buffer_to_label(label, num_buffer_tiles=2)
+    assert np.array_equal(buffered_label_2, expected_output_2), "Buffered label does not match expected output with num_buffer_tiles=2."
+
+def test_add_buffer_to_label_empty():
+    """
+    Test add_buffer_to_label with an empty label array.
+    """
+    label = np.zeros((5, 5), dtype=np.uint8)
+    expected_output = np.zeros((5, 5), dtype=np.uint8)
+    
+    buffered_label = add_buffer_to_label(label, num_buffer_tiles=1)
+    assert np.array_equal(buffered_label, expected_output), "Buffered label should be empty when input label is empty."

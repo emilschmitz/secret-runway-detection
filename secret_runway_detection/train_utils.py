@@ -189,19 +189,6 @@ def landing_strips_to_enclosing_input_areas(
 
     return input_areas
 
-
-def landing_strips_to_big_area(landing_strips: gpd.GeoDataFrame) -> Polygon:
-    """
-    From a list of landing strips, create a big area that contains all strips.
-    """
-    ...
-
-def big_area_to_input_areas(big_area: Polygon, num_tiles_per_area_side_len: int) -> gpd.GeoDataFrame:
-    """
-    Divides a big area, either arbitrary or an AOI, into smaller input areas.
-    """
-    ...
-
 def input_area_to_has_strip_tensor(
     landing_strips: gpd.GeoDataFrame, 
     input_area: Polygon, 
@@ -229,12 +216,12 @@ def input_area_to_has_strip_tensor(
     height = maxy - miny
 
     if not np.isclose(width, height, atol=1e-6):
-        logging.warning(f"Input area is not square: width={width}, height={height}, ratio={width/height}")
+        logger.warning(f"Input area is not square: width={width}, height={height}, ratio={width/height}")
 
     # 2. Ensure landing_strips GeoDataFrame is in the same CRS as input_area
     if landing_strips.crs != input_area_crs:
         landing_strips = landing_strips.to_crs(input_area_crs)
-        logging.info(f"Inside area-to-tensor method. Landing Strips on different CRS, reprojected to: {input_area_crs}")
+        logger.info(f"Inside area-to-tensor method. Landing Strips on different CRS, reprojected to: {input_area_crs}")
 
     # 3. Filter out landing strips that do not overlap with the input area
     overlapping_strips = landing_strips[landing_strips.intersects(input_area)].copy()
@@ -292,6 +279,7 @@ def input_area_to_has_strip_tensor(
 def add_buffer_to_label(label: np.ndarray, num_buffer_tiles: int) -> np.ndarray:
     """
     Adds a buffer region around the tiles with value 1 in the label array.
+    For everyone, it basically adds a cross with 'arms' of length num_buffer_tiles around the 1s.
 
     Parameters:
     - label (np.ndarray): 2D array representing the label mask.
@@ -301,7 +289,9 @@ def add_buffer_to_label(label: np.ndarray, num_buffer_tiles: int) -> np.ndarray:
     - np.ndarray: The label array with the buffer added.
     """
     # Create a structuring element for dilation
-    structure = np.ones((2 * num_buffer_tiles + 1, 2 * num_buffer_tiles + 1), dtype=bool)
+    arr = np.concatenate([np.zeros(num_buffer_tiles), np.ones(1), np.zeros(num_buffer_tiles)])
+    structure = np.add.outer(arr, arr) > 0
+    structure = structure.astype(np.uint8)
 
     # Apply binary dilation to add buffer
     buffered_label = binary_dilation(label, structure=structure).astype(np.uint8)
@@ -428,7 +418,7 @@ def input_area_to_input_image(
         return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
 
     if collection_size == 0:
-        logger.warning("No images found in the collection for the specified date range and area.")
+        logger.warning(f"No images found in the collection for the specified date range {image_data_start_date}--{image_data_end_date} and area.")
         return np.zeros((3, input_image_height, input_image_width), dtype=np.float32)
 
     # Apply cloud masking function
