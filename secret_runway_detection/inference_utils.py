@@ -43,22 +43,155 @@ TILES_PER_AREA_LEN = 200  # side of one input area there should fit exactly this
 
 RANDOM_SEED = 42
 
-def point_to_aoi_southeast(point: Point, crs) -> Polygon:
+import os
+import ee
+import requests
+import numpy as np
+import rasterio
+from rasterio.merge import merge
+from shapely.geometry import box
+from shapely.ops import split
+from shapely.geometry import Polygon
+from typing import Optional, List, Tuple
+
+def fetch_and_stitch_aoi_quarters(
+    aoi_polygon: Polygon,
+    aoi_crs: str,
+    image_start_date: str,
+    image_end_date: str,
+    output_dir: str,
+    output_filename: str,
+    bands: Optional[List[str]] = None,
+    scale: int = 10,
+    cloud_coverage: int = 20
+) -> str:
     """
-    Creates a rectangular AOI polygon starting from a point (northwest corner),
-    extending AOI_WIDTH meters east and AOI_HEIGHT meters south.
+    Splits the AOI into four quarters, downloads images for each quarter,
+    stitches them back together, and saves the final image.
+
+    Parameters:
+    - aoi_polygon (Polygon): The AOI polygon.
+    - aoi_crs (str): Coordinate reference system of the AOI (e.g., 'EPSG:4326').
+    - image_start_date (str): Start date for image collection (YYYY-MM-DD).
+    - image_end_date (str): End date for image collection (YYYY-MM-DD).
+    - output_dir (str): Directory to save the images and final mosaic.
+    - output_filename (str): Filename for the final stitched image (without extension).
+    - bands (List[str], optional): List of band names to include. Defaults to ['B4', 'B3', 'B2'].
+    - scale (int, optional): Resolution in meters per pixel. Defaults to 10.
+    - cloud_coverage (int, optional): Maximum allowed cloud coverage percentage. Defaults to 20.
+
+    Returns:
+    - str: Path to the final stitched image.
+
+    Raises:
+    - Exception: If the image download or stitching process fails.
     """
-    minx = point.x
-    maxx = point.x + AOI_WIDTH  # Move east
-    maxy = point.y
-    miny = point.y - AOI_HEIGHT  # Move south
-    return Polygon([
-        (minx, maxy),  # Northwest corner
-        (maxx, maxy),  # Northeast corner
-        (maxx, miny),  # Southeast corner
-        (minx, miny),  # Southwest corner
-        (minx, maxy)   # Close polygon
-    ])
+    # Initialize Earth Engine
+    ee.Initialize()
+
+    if bands is None:
+        bands = ['B4', 'B3', 'B2']  # Default to Red, Green, Blue bands
+
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Split the AOI into four quarters
+    minx, miny, maxx, maxy = aoi_polygon.bounds
+    mid_x = (minx + maxx) / 2
+    mid_y = (miny + maxy) / 2
+
+    # Define quarters
+    quarters = [
+        aoi_polygon.intersection(box(minx, mid_y, mid_x, maxy)),  # Top-left
+        aoi_polygon.intersection(box(mid_x, mid_y, maxx, maxy)),  # Top-right
+        aoi_polygon.intersection(box(minx, miny, mid_x, mid_y)),  # Bottom-left
+        aoi_polygon.intersection(box(mid_x, miny, maxx, mid_y)),  # Bottom-right
+    ]
+
+    # Function to download image for a given geometry
+    def download_image(geometry: Polygon, filename: str) -> Optional[str]:
+        # Convert the shapely polygon to GeoJSON format
+        geojson = geometry.__geo_interface__
+        # Create an Earth Engine geometry
+        ee_geom = ee.Geometry(geojson)
+        
+        # Define the image collection and filter it
+        collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
+            .filterDate(image_start_date, image_end_date) \
+            .filterBounds(ee_geom) \
+            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cloud_coverage))
+
+        # Create a median composite
+        image = collection.median().clip(ee_geom)
+
+        # Generate the download URL using getDownloadURL
+        try:
+            url = image.getDownloadURL({
+                'name': filename,
+                'bands': bands,
+                'region': ee_geom,
+                'scale': scale,
+                'crs': aoi_crs,
+                'filePerBand': False,
+                'format': 'GEO_TIFF'
+            })
+        except Exception as e:
+            print(f"Error generating download URL for {filename}: {e}")
+            return None
+
+        # Download the image
+        response = requests.get(url, stream=True)
+        if response.status_code != 200:
+            print(f'Error fetching image for {filename}')
+            return None
+        else:
+            output_path = os.path.join(output_dir, f'{filename}.tif')
+            with open(output_path, 'wb') as fd:
+                for chunk in response.iter_content(chunk_size=1024):
+                    fd.write(chunk)
+            print(f"Image saved to {output_path}")
+            return output_path
+
+    # Download images for each quarter
+    image_paths: List[Tuple[int, str]] = []
+    for idx, quarter in enumerate(quarters, 1):
+        if not quarter.is_empty:
+            filename = f'{output_filename}_quarter_{idx}'
+            path = download_image(quarter, filename)
+            if path:
+                image_paths.append((idx, path))
+        else:
+            print(f"Quarter {idx} is empty and will be skipped.")
+
+    # Read and stitch the images
+    src_files_to_mosaic = []
+    for idx, path in image_paths:
+        src = rasterio.open(path)
+        src_files_to_mosaic.append(src)
+
+    if src_files_to_mosaic:
+        mosaic, out_trans = merge(src_files_to_mosaic)
+        # Write the mosaic to disk
+        mosaic_output = os.path.join(output_dir, f'{output_filename}.tif')
+        out_meta = src.meta.copy()
+        out_meta.update({
+            "driver": "GTiff",
+            "height": mosaic.shape[1],
+            "width": mosaic.shape[2],
+            "transform": out_trans,
+            "crs": src.crs
+        })
+        with rasterio.open(mosaic_output, "w", **out_meta) as dest:
+            dest.write(mosaic)
+        print(f"Mosaic image saved to {mosaic_output}")
+
+        # Close the dataset files
+        for src in src_files_to_mosaic:
+            src.close()
+
+        return mosaic_output
+    else:
+        raise Exception("No images were downloaded to create a mosaic.")
 
 def aoi_to_tiles(aoi: Polygon) -> gpd.GeoDataFrame:
     """

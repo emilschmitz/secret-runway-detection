@@ -5,13 +5,11 @@ import pandas as pd
 import numpy as np
 import pyproj
 import requests
-import shapely
 import torch
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon, LineString, mapping
 from PIL import Image
 import ee
 import numpy as np
-from shapely.geometry import mapping
 import geopandas as gpd
 import random
 from scipy.ndimage.morphology import binary_dilation
@@ -44,40 +42,6 @@ RANDOM_SEED = 42
 
 random.seed(RANDOM_SEED)
 
-def point_to_input_area_southeast(point: Point, crs: pyproj.CRS, num_tiles_per_area_side_len: int) -> Polygon:
-    """
-    Creates a rectangular input area polygon starting from a point (northwest corner),
-    extending south and east based on the number of tiles per side length.
-
-    Parameters:
-    - point: Shapely Point object representing the northwest corner.
-    - crs: Coordinate Reference System.
-    - num_tiles_per_area_side_len: Number of tiles per side length of the area.
-
-    Returns:
-    - Polygon representing the input area.
-    """
-    area_size = num_tiles_per_area_side_len * TILE_SIDE_LEN  # in meters
-
-    minx = point.x
-    maxx = point.x + area_size  # Move east
-    maxy = point.y
-    miny = point.y - area_size  # Move south
-
-    return Polygon([
-        (minx, maxy),  # Northwest corner
-        (maxx, maxy),  # Northeast corner
-        (maxx, miny),  # Southeast corner
-        (minx, miny),  # Southwest corner
-        (minx, maxy)   # Close polygon
-    ])
-
-
-import pandas as pd
-import geopandas as gpd
-from shapely.geometry import Polygon, LineString
-import random
-import numpy as np
 
 def landing_strips_to_enclosing_input_areas(
     landing_strips: gpd.GeoDataFrame, 
@@ -298,7 +262,7 @@ def add_buffer_to_label(label: np.ndarray, num_buffer_tiles: int) -> np.ndarray:
 
     return buffered_label
 
-def get_time_period_of_strips_on_area(strips: gpd.GeoDataFrame, area: Polygon, area_crs: pyproj.CRS) -> tuple[pd.Timestamp, pd.Timestamp]:
+def get_time_period_of_strips_on_area(strips: gpd.GeoDataFrame, area: Polygon, area_crs: pyproj.CRS) -> tuple[pd.Timestamp, pd.Timestamp] | None:
     """
     Returns the time period of the strips that are on the specified area.
     
@@ -309,9 +273,10 @@ def get_time_period_of_strips_on_area(strips: gpd.GeoDataFrame, area: Polygon, a
     
     Returns:
     - tuple[pd.Timestamp, pd.Timestamp]: Start and end timestamps defining the smallest enclosing period.
+    - None: If no strips overlap the area.
     
     Raises:
-    - ValueError: If no strips overlap the area or 'yr' attribute is missing.
+    - ValueError: If 'yr' attribute is missing.
     - TypeError: If the 'yr' attribute is not numeric.
     """
     # Ensure the strips are in the same CRS as the area
@@ -323,7 +288,8 @@ def get_time_period_of_strips_on_area(strips: gpd.GeoDataFrame, area: Polygon, a
     logging.debug(f"Overlapping strips: {overlapping_strips}")
     
     if overlapping_strips.empty:
-        raise ValueError("No landing strips intersect the specified area.")
+        logger.warning("No landing strips intersect the specified area.")
+        return None
     
     # Check if 'yr' attribute exists
     if 'yr' not in overlapping_strips.columns:
