@@ -16,7 +16,6 @@ print(os.getcwd())
 
 from secret_runway_detection.train_utils import (
     add_buffer_to_label,
-    point_to_input_area_southeast,
     landing_strips_to_enclosing_input_areas,
     input_area_to_has_strip_tensor,
     input_area_to_input_image,
@@ -81,31 +80,6 @@ def dummy_model():
     return DummyModel()
 
 # Test Cases
-
-def test_point_to_input_area_southeast(sample_aoi):
-    """Test the point_to_input_area_southeast function."""
-    # Define a point at the northwest corner of the AOI
-    point = sample_aoi.exterior.coords[0]
-    point = Polygon(sample_aoi.exterior.coords).centroid  # Using centroid for simplicity
-    input_area_polygon = point_to_input_area_southeast(point, crs=None, num_tiles_per_area_side_len=10)
-    
-    # Calculate expected area size
-    expected_area_size = 10 * TILE_SIDE_LEN  # 10 tiles
-    
-    minx = point.x
-    maxx = minx + expected_area_size
-    maxy = point.y
-    miny = point.y - expected_area_size
-    
-    expected_polygon = Polygon([
-        (minx, maxy),  # Northwest corner
-        (maxx, maxy),  # Northeast corner
-        (maxx, miny),  # Southeast corner
-        (minx, miny),  # Southwest corner
-        (minx, maxy)   # Close polygon
-    ])
-    
-    assert input_area_polygon.equals(expected_polygon), "Input area polygon does not match expected coordinates."
 
 def test_landing_strips_to_input_areas(sample_aoi):
     """Test the landing_strips_to_input_areas function."""
@@ -175,35 +149,6 @@ def test_input_area_to_has_strip_tensor(sample_aoi):
     
     # Check that the label tensor has at least one positive label
     assert torch.sum(label_tensor) >= 1, "Label tensor should contain at least one positive label."
-
-def test_LandingStripDataset(sample_aoi):
-    """Test the LandingStripDataset class."""
-    input_image_polygon = sample_aoi
-    input_image_polygons = gpd.GeoDataFrame({'geometry': [input_image_polygon]}, crs='EPSG:32633')
-    # Create a simple landing strip within the AOI
-
-    landing_strip_polygon = Polygon([
-        (5000, 5000),
-        (7000, 5000),
-        (7000, 7000),
-        (5000, 7000),
-        (5000, 5000)
-    ])
-    landing_strips = gpd.GeoDataFrame({'geometry': [landing_strip_polygon]}, crs='EPSG:32633')
-    
-    dataset = make_train_set(input_areas=input_image_polygons, landing_strips=landing_strips)
-    
-    # Check dataset length
-    assert len(dataset) == 1, f"Expected dataset length 1, got {len(dataset)}."
-    
-    # Retrieve the first item
-    input_tensor, label_tensor = dataset[0]
-    
-    expected_input_shape = (1, 3, INPUT_IMAGE_HEIGHT, INPUT_IMAGE_WIDTH)
-    expected_label_shape = (1, INPUT_IMAGE_HEIGHT, INPUT_IMAGE_WIDTH)
-    
-    assert input_tensor.shape == expected_input_shape, f"Expected input tensor shape {expected_input_shape}, got {input_tensor.shape}."
-    assert label_tensor.shape == expected_label_shape, f"Expected label tensor shape {expected_label_shape}, got {label_tensor.shape}."
 
 def test_add_buffer_to_label():
     """

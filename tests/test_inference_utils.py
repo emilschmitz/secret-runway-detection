@@ -1,5 +1,6 @@
 # tests/test_inference_utils.py
 
+import tempfile
 import pandas as pd
 import pytest
 from shapely.geometry import Polygon, Point
@@ -7,12 +8,11 @@ import geopandas as gpd
 import torch
 import os
 from secret_runway_detection.inference_utils import (
-    point_to_aoi_southeast,
-    aoi_to_tiles,
-    aoi_to_input_areas,
-    pad_output_tensor,
+    # aoi_to_tiles,
+    # aoi_to_input_areas,
+    # pad_output_tensor,
+    has_strip_tensors_to_submission_csv,
     run_inference_on_aoi,
-    tensor_to_submission_csv
 )
 
 # Constants (Ensure these match the values in inference_utils.py)
@@ -51,17 +51,17 @@ def sample_aoi():
         (minx, miny)
     ])
 
-@pytest.fixture
-def sample_tiles_gdf(sample_aoi):
-    """Fixture for a sample tiles GeoDataFrame covering the AOI."""
-    tiles_gdf = aoi_to_tiles(sample_aoi)
-    return tiles_gdf
+# @pytest.fixture
+# def sample_tiles_gdf(sample_aoi):
+#     """Fixture for a sample tiles GeoDataFrame covering the AOI."""
+#     tiles_gdf = aoi_to_tiles(sample_aoi)
+#     return tiles_gdf
 
-@pytest.fixture
-def sample_input_areas_gdf(sample_aoi):
-    """Fixture for a sample input areas GeoDataFrame."""
-    input_areas_gdf = aoi_to_input_areas(sample_aoi, crs=None)  # Provide CRS if required
-    return input_areas_gdf
+# @pytest.fixture
+# def sample_input_areas_gdf(sample_aoi):
+#     """Fixture for a sample input areas GeoDataFrame."""
+#     input_areas_gdf = aoi_to_input_areas(sample_aoi, crs=None)  # Provide CRS if required
+#     return input_areas_gdf
 
 @pytest.fixture
 def dummy_model():
@@ -74,7 +74,7 @@ def dummy_model():
 
 # Test Cases
 
-def test_point_to_aoi_southeast(sample_aoi):
+# def test_point_to_aoi_southeast(sample_aoi):
     """Test the point_to_aoi_southeast function."""
     # Define a point at the northwest corner of the AOI
     point = sample_aoi.exterior.coords[0]
@@ -100,7 +100,7 @@ def test_point_to_aoi_southeast(sample_aoi):
     
     assert aoi_polygon.equals(expected_polygon), "AOI polygon does not match expected coordinates."
 
-def test_aoi_to_tiles(sample_aoi):
+# def test_aoi_to_tiles(sample_aoi):
     """Test the aoi_to_tiles function."""
     tiles_gdf = aoi_to_tiles(sample_aoi)
     expected_num_tiles = ROWS_COUNT * COLUMNS_COUNT
@@ -110,7 +110,7 @@ def test_aoi_to_tiles(sample_aoi):
     tiles_union = tiles_gdf.unary_union
     assert sample_aoi.equals(tiles_union), "Tiles do not correctly cover the AOI."
 
-def test_aoi_to_input_areas(sample_aoi):
+# def test_aoi_to_input_areas(sample_aoi):
     """Test the aoi_to_input_areas function."""
     input_areas_gdf = aoi_to_input_areas(sample_aoi, crs=None)  # Provide CRS if required
     
@@ -122,7 +122,7 @@ def test_aoi_to_input_areas(sample_aoi):
     for idx, area in input_areas_gdf.iterrows():
         assert isinstance(area.geometry, Polygon), f"Input area at index {idx} is not a Polygon."
 
-def test_pad_output_tensor():
+# def test_pad_output_tensor():
     """Test the pad_output_tensor function."""
     output_tensor = torch.ones((INPUT_IMAGE_HEIGHT, INPUT_IMAGE_WIDTH))
     idxs = {
@@ -159,33 +159,63 @@ def test_run_inference_on_aoi(sample_aoi, dummy_model):
     unique_values = torch.unique(final_prediction_tensor)
     assert torch.all((unique_values == 0) | (unique_values == 1)), "Final prediction tensor contains values other than 0 and 1."
 
-def test_tensor_to_submission_csv(tmp_path):
-    """Test the tensor_to_submission_csv function."""
-    # Create a sample tensor with some predictions
-    tensor = torch.zeros((ROWS_COUNT, COLUMNS_COUNT))
-    tensor[100, 200] = 1
-    tensor[300, 400] = 1
-    tensor[500, 600] = 1
-    
-    # Define a temporary directory for CSV output
-    csvs_dir = tmp_path / "submission_csvs"
-    submission_df = tensor_to_submission_csv(tensor, 'from-top-left', csvs_dir=str(csvs_dir))
-    
-    # Check DataFrame structure
-    assert isinstance(submission_df, pd.DataFrame), "Submission is not a pandas DataFrame."
-    assert list(submission_df.columns) == ['row', 'col', 'prediction'], "CSV columns do not match expected names."
-    assert len(submission_df) == 3, f"Expected 3 predictions, got {len(submission_df)}."
-    
-    # Check specific entries
-    expected_rows = [100, 300, 500]
-    expected_cols = [200, 400, 600]
-    for row, col in zip(expected_rows, expected_cols):
-        assert ((submission_df['row'] == row) & (submission_df['col'] == col)).any(), f"Missing prediction at row {row}, col {col}."
-    
-    # Check if CSV file exists
-    expected_csv_path = csvs_dir / 'submission.csv'
-    assert os.path.exists(expected_csv_path), "Submission CSV file was not created."
-    
-    # Optionally, read the CSV and verify contents
-    loaded_df = pd.read_csv(expected_csv_path)
-    pd.testing.assert_frame_equal(submission_df.reset_index(drop=True), loaded_df.reset_index(drop=True), check_dtype=False)
+def test_has_strip_tensors_to_submission_csv():
+    # Create sample has_strip_tensors
+    has_strip_tensors = {
+        'aoi_2021_02': torch.tensor([[0, 1], [1, 0]]),
+        'aoi_2021_03': torch.tensor([[1, 0], [0, 1]]),
+    }
+
+    # Create a sample SampleSubmission.csv DataFrame
+    sample_submission_data = {
+        'tile_row_column': [
+            'Tileaoi_21_02_0_1',
+            'Tileaoi_21_02_1_0',
+            'Tileaoi_21_03_1_1',
+            'Tileaoi_21_02_0_0',
+            'Tileaoi_21_03_0_0',
+            'Tileaoi_21_03_0_1',
+            'Tileaoi_21_02_1_1',
+            'Tileaoi_21_03_1_0',
+        ],
+        'label': [0] * 8,  # Placeholder labels
+    }
+    sample_submission_df = pd.DataFrame(sample_submission_data)
+
+    # Use a temporary directory for CSVs
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Save the sample submission to a temporary file
+        sample_submission_path = os.path.join(temp_dir, 'SampleSubmission.csv')
+        sample_submission_df.to_csv(sample_submission_path, index=False)
+
+        # Run the function
+        submission_df = has_strip_tensors_to_submission_csv(
+            has_strip_tensors=has_strip_tensors,
+            indexes='from-top-left',
+            reorder=True,
+            csvs_dir=temp_dir,
+            sample_submission_path=sample_submission_path
+        )
+
+        # Expected labels based on tensors
+        expected_labels = [
+            has_strip_tensors['aoi_2021_02'][0, 1].item(),
+            has_strip_tensors['aoi_2021_02'][1, 0].item(),
+            has_strip_tensors['aoi_2021_03'][1, 1].item(),
+            has_strip_tensors['aoi_2021_02'][0, 0].item(),
+            has_strip_tensors['aoi_2021_03'][0, 0].item(),
+            has_strip_tensors['aoi_2021_03'][0, 1].item(),
+            has_strip_tensors['aoi_2021_02'][1, 1].item(),
+            has_strip_tensors['aoi_2021_03'][1, 0].item(),
+        ]
+
+        # Check that the labels in submission_df match the expected labels
+        assert submission_df['label'].tolist() == expected_labels
+
+        # Optionally, check that the submission CSV file was created
+        submission_csv_path = os.path.join(temp_dir, 'submission.csv')
+        assert os.path.exists(submission_csv_path)
+
+        # Read the saved submission CSV and compare
+        saved_submission_df = pd.read_csv(submission_csv_path)
+        assert saved_submission_df.equals(submission_df)

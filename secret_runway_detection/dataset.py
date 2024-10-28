@@ -3,6 +3,8 @@ import torch
 from pathlib import Path
 import logging
 import numpy as np
+import torchvision.transforms as T
+import random
 
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,40 @@ class LandingStripDataset(Dataset):
         label_tensor = torch.from_numpy(label).float()  # Shape (tiles_per_area_len, tiles_per_area_len)
 
         if self.transform:
-            image_tensor = self.transform(image_tensor)
+            image_tensor, label_tensor = self.transform(image_tensor, label_tensor)
 
         return image_tensor, label_tensor
+
+class RandomHorizontalFlip:
+    def __call__(self, image, label):
+        if random.random() < 0.5:
+            image = torch.flip(image, dims=[2])  # Flip image horizontally
+            label = torch.flip(label, dims=[1])  # Flip label horizontally
+        return image, label
+
+class RandomVerticalFlip:
+    def __call__(self, image, label):
+        if random.random() < 0.5:
+            image = torch.flip(image, dims=[1])  # Flip image vertically
+            label = torch.flip(label, dims=[0])  # Flip label vertically
+        return image, label
+
+class RandomRotate90:
+    def __call__(self, image, label):
+        k = random.randint(0, 3)  # Randomly choose rotation
+        image = torch.rot90(image, k, [1, 2])  # Rotate image
+        label = torch.rot90(label, k, [0, 1])  # Rotate label
+        return image, label
+
+class SegmentationTransform:
+    def __init__(self):
+        self.transforms = [
+            RandomHorizontalFlip(),
+            RandomVerticalFlip(),
+            RandomRotate90()
+        ]
+
+    def __call__(self, image, label):
+        for transform in self.transforms:
+            image, label = transform(image, label)
+        return image, label

@@ -36,7 +36,7 @@ INPUT_IMAGE_WIDTH = 224
 INPUT_AREAS_VERTICALLY = 10  
 INPUT_AREAS_HORIZONTALLY = 10
 
-TILES_PER_AREA_LEN = 200  # side of one input area there should fit exactly this many tiles
+TILES_PER_AREA_LEN = 224  # side of one input area there should fit exactly this many tiles
 
 RANDOM_SEED = 42
 

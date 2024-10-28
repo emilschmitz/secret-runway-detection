@@ -56,3 +56,4 @@ class CombinedModel(nn.Module):
         x = self.backbone(x)  # Output shape: (batch_size, embedding_dim)
         x = self.segmentation_head(x)
         return x
+    

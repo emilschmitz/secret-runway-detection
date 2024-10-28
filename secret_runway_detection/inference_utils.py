@@ -317,70 +317,92 @@ def run_inference_on_aoi(aoi: Polygon, model: torch.nn.Module, threshold: float)
 
     return final_prediction_tensor
 
-def tensor_to_submission_csv(tensor: torch.Tensor, indexes: str,csvs_dir='submission_csvs') -> pd.DataFrame:
+def has_strip_tensors_to_submission_csv(
+    has_strip_tensors: dict[str, torch.Tensor],
+    indexes: str,
+    reorder: bool = True,
+    csvs_dir: str = '../submission_csvs',
+    sample_submission_path: str = '../SampleSubmission.csv'
+) -> pd.DataFrame:
     """
-    Converts the final prediction tensor into a submission CSV file.
+    Converts the final prediction tensors into a submission CSV file.
+
+    Parameters:
+    - has_strip_tensors: Dictionary mapping AOI names to prediction tensors.
+    - indexes: Indexing method used ('from-top-left' is currently supported).
+    - reorder: Whether to reorder the output to match the sample submission.
+    - csvs_dir: Directory to save the submission CSV.
+    - sample_submission_path: Path to the sample submission CSV.
+
+    Returns:
+    - submission_df: A DataFrame containing the submission data.
     """
-    if not indexes == 'from-top-left':
+    if indexes != 'from-top-left':
         raise NotImplementedError("Only 'from-top-left' indexes are supported at the moment")
 
-    # Flatten the tensor and get the indices of positive predictions
-    positive_indices = torch.nonzero(tensor).cpu().numpy()
-    rows = positive_indices[:, 0]
-    cols = positive_indices[:, 1]
+    # Read the sample submission
+    sample_submission = pd.read_csv(sample_submission_path)
 
-    data = {
-        'row': rows,
-        'col': cols,
-        'prediction': tensor[rows, cols].cpu().numpy()
-    }
+    # Initialize a list to store the labels
+    labels = []
 
-    submission_df = pd.DataFrame(data)
+    def convert_aoi_name(aoi_name_in_submission: str) -> str:
+        """
+        Converts AOI names from the sample submission format to the tensor format.
+        E.g., 'aoi_21_02' -> 'aoi_2021_02'
+        """
+        parts = aoi_name_in_submission.split('_')
+        if len(parts) != 3:
+            raise ValueError(f"Unexpected AOI name format: {aoi_name_in_submission}")
+        prefix, year_short, idx = parts
+        year_full = '20' + year_short  # Convert '21' to '2021'
+        return f"{prefix}_{year_full}_{idx}"
+
+    # Process each row in the sample submission
+    for _, row in sample_submission.iterrows():
+        tile_id = row['tile_row_column']  # E.g., 'Tileaoi_21_02_332_448'
+
+        # Remove 'Tile' prefix and split the identifier
+        tile_id_no_prefix = tile_id[4:]
+        parts = tile_id_no_prefix.split('_')
+
+        if len(parts) != 5:
+            raise ValueError(f"Unexpected tile_id format: {tile_id}")
+
+        # Extract AOI name, row, and column indices
+        aoi_name_submission = '_'.join(parts[:3])  # 'aoi_21_02'
+        row_idx = int(parts[3])
+        col_idx = int(parts[4])
+
+        # Convert AOI name to match the keys in has_strip_tensors
+        aoi_name = convert_aoi_name(aoi_name_submission)  # 'aoi_2021_02'
+
+        # Retrieve the tensor for the AOI
+        if aoi_name not in has_strip_tensors:
+            raise ValueError(f"AOI {aoi_name} not found in has_strip_tensors")
+
+        tensor = has_strip_tensors[aoi_name]
+
+        # Ensure indices are within tensor bounds
+        if row_idx >= tensor.shape[0] or col_idx >= tensor.shape[1]:
+            label = 0  # Assign 0 if indices are out of bounds
+        else:
+            label = int(tensor[row_idx, col_idx].item())
+
+        labels.append(label)
+
+    # Add the labels to the DataFrame
+    submission_df = sample_submission.copy()
+    submission_df['label'] = labels
+
+    # Reorder columns if necessary
+    if reorder:
+        submission_df = submission_df[['tile_row_column', 'label']]
+
     # Save to CSV
     os.makedirs(csvs_dir, exist_ok=True)
     submission_csv_path = os.path.join(csvs_dir, 'submission.csv')
     submission_df.to_csv(submission_csv_path, index=False)
+
     return submission_df
 
-
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    from shapely.geometry import Point
-    import geopandas as gpd
-
-    # Create a sample point to define the AOI (Adjust coordinates as needed)
-    point = Point(500000, 4500000)  # Example coordinates in meters (UTM)
-
-    # Generate the AOI polygon using your function
-    aoi_polygon = point_to_aoi_southeast(point)
-
-    # Create a GeoDataFrame for the AOI
-    aoi_gdf = gpd.GeoDataFrame({'geometry': [aoi_polygon]}, crs='EPSG:32633')  # Replace with your CRS
-
-    # Generate the tiles over the AOI
-    tiles_gdf = aoi_to_tiles(aoi_polygon)
-
-    # Generate the input areas (input images)
-    input_areas_gdf = aoi_to_input_areas(aoi_polygon)
-
-    # Plotting
-    fig, ax = plt.subplots(figsize=(12, 12))
-
-    # Plot the AOI boundary
-    aoi_gdf.boundary.plot(ax=ax, edgecolor='red', linewidth=2, label='AOI')
-
-    # Plot the tiles
-    tiles_gdf.boundary.plot(ax=ax, edgecolor='blue', linewidth=0.5, alpha=0.5, label='Tiles')
-
-    # Plot the input areas
-    input_areas_gdf.boundary.plot(ax=ax, edgecolor='green', linewidth=1, alpha=0.7, label='Input Areas')
-
-    # Set plot title and legend
-    ax.set_title('AOI, Tiles, and Input Areas')
-    ax.legend()
-
-    # Equal aspect ratio ensures that the scales on x and y axes are equal
-    ax.set_aspect('equal')
-
-    # Show the plot
-    plt.show()
