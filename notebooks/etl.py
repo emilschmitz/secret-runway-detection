@@ -61,8 +61,9 @@ from secret_runway_detection.train_utils import (
 DEBUG = False
 
 # Set parameters
-NUM_INPUT_AREAS_PER_STRIP = 10 if not DEBUG else 1          # Input areas to generate per landing strip
-NUM_POSSIBLY_EMPTY_AREAS = 500 if not DEBUG else 1            # Number of possibly empty areas to generate
+BUFFER_TYPE = 'point'
+NUM_INPUT_AREAS_PER_STRIP = 5 if not DEBUG else 1          # Input areas to generate per landing strip
+NUM_POSSIBLY_EMPTY_AREAS = 5 if not DEBUG else 1            # Number of possibly empty areas to generate
 
 # Set random seeds for reproducibility
 np.random.seed(RANDOM_SEED)
@@ -78,7 +79,7 @@ ee.Authenticate()
 ee.Initialize()
 
 # Dirs
-OUTPUT_DIR = Path('../training_data')  # Directory to save the generated data
+OUTPUT_DIR = Path(f'../training_data_{BUFFER_TYPE}')  # Directory to save the generated data
 IMAGE_DIR = OUTPUT_DIR / 'images'
 LABEL_DIR = OUTPUT_DIR / 'labels'
 os.makedirs(IMAGE_DIR, exist_ok=True)
@@ -175,7 +176,8 @@ for idx, strip in tqdm(landing_strips.iterrows(), total=len(landing_strips), des
             landing_strips=landing_strips,
             input_area=input_area,
             input_area_crs=landing_strips.crs,
-            tiles_per_area_len=TILES_PER_AREA_LEN
+            tiles_per_area_len=TILES_PER_AREA_LEN,
+            buffer_type=BUFFER_TYPE
         )
 
         # Save the image and label
@@ -267,7 +269,8 @@ for idx in tqdm(range(NUM_POSSIBLY_EMPTY_AREAS), desc="Generating Possibly Empty
         landing_strips=landing_strips,
         input_area=moved_area_wgs84,
         input_area_crs=wgs84,
-        tiles_per_area_len=TILES_PER_AREA_LEN
+        tiles_per_area_len=TILES_PER_AREA_LEN,
+        buffer_type=BUFFER_TYPE,
     )
 
     # Save the image and label

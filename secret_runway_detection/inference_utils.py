@@ -193,40 +193,7 @@ def fetch_and_stitch_aoi_quarters(
     else:
         raise Exception("No images were downloaded to create a mosaic.")
 
-def aoi_to_tiles(aoi: Polygon) -> gpd.GeoDataFrame:
-    """
-    Divides the AOI into tiles of size METERS_PER_PIXEL x METERS_PER_PIXEL,
-    and returns a GeoDataFrame with tile geometries and their row and column indices.
-    Function only used for testing purposes.
-    """
-    tiles = []
-    minx, miny, maxx, maxy = aoi.bounds
-    x_coords = np.arange(minx, maxx, TILE_SIDE_LEN)
-    y_coords = np.arange(miny, maxy, TILE_SIDE_LEN)
-
-    row_idx = 0
-    for y in y_coords:
-        col_idx = 0
-        for x in x_coords:
-            tile = Polygon([
-                (x, y),
-                (x + TILE_SIDE_LEN, y),
-                (x + TILE_SIDE_LEN, y + TILE_SIDE_LEN),
-                (x, y + TILE_SIDE_LEN),
-                (x, y)
-            ])
-            tiles.append({
-                'geometry': tile,
-                'row_idx': row_idx,
-                'col_idx': col_idx
-            })
-            col_idx += 1
-        row_idx += 1
-
-    tiles_gdf = gpd.GeoDataFrame(tiles, crs='EPSG:32633')  # Replace with appropriate CRS
-    return tiles_gdf
-
-def aoi_to_input_areas(aoi: Polygon, crs: pyproj.CRS, num_areas_vertically: int = INPUT_AREAS_VERTICALLY, num_areas_horizontally: int = INPUT_AREAS_HORIZONTALLY) -> gpd.GeoDataFrame:
+def _aoi_to_input_areas(aoi: Polygon, crs: pyproj.CRS, num_areas_vertically: int = INPUT_AREAS_VERTICALLY, num_areas_horizontally: int = INPUT_AREAS_HORIZONTALLY) -> gpd.GeoDataFrame:
     """
     Returns both input area geometries and the tile row and column index ranges that cover them.
     """
@@ -294,7 +261,7 @@ def run_inference_on_aoi(aoi: Polygon, model: torch.nn.Module, threshold: float)
     """
     NB we are using max confidence from overlapping areas
     """
-    input_areas = aoi_to_input_areas(aoi)
+    input_areas = _aoi_to_input_areas(aoi)
 
     padded_output_tensors = []
     for _, input_area_row in input_areas.iterrows():

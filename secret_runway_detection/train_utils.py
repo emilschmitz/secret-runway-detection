@@ -1,5 +1,6 @@
 from io import BytesIO
 import logging
+from typing import Literal
 import geopandas as gpd
 import pandas as pd
 import numpy as np
@@ -157,6 +158,7 @@ def input_area_to_has_strip_tensor(
     landing_strips: gpd.GeoDataFrame, 
     input_area: Polygon, 
     input_area_crs: pyproj.CRS, 
+    buffer_type: Literal['point', 'cross', 'ball', 'square'],
     tiles_per_area_len: int = TILES_PER_AREA_LEN,
     num_buffer_tiles: int = 20,
 ) -> torch.Tensor:
@@ -233,14 +235,15 @@ def input_area_to_has_strip_tensor(
     has_strip_matrix = has_strip.values.reshape((tiles_per_area_len, tiles_per_area_len))
 
     # 9. Add buffer region around the tiles with value 1
-    has_strip_matrix = add_buffer_to_label(has_strip_matrix, num_buffer_tiles)
+    has_strip_matrix = add_buffer_to_label(has_strip_matrix, num_buffer_tiles, buffer_type)
 
     # 10. Convert the NumPy array to a PyTorch tensor of type float
     tensor = torch.tensor(has_strip_matrix, dtype=torch.float32)
 
     return tensor
 
-def add_buffer_to_label(label: np.ndarray, num_buffer_tiles: int) -> np.ndarray:
+def add_buffer_to_label(label: np.ndarray, num_buffer_tiles: int, 
+                        buffer_type: Literal['point', 'cross', 'ball', 'square']) -> np.ndarray:
     """
     Adds a buffer region around the tiles with value 1 in the label array.
     For everyone, it basically adds a cross with 'arms' of length num_buffer_tiles around the 1s.
@@ -253,9 +256,22 @@ def add_buffer_to_label(label: np.ndarray, num_buffer_tiles: int) -> np.ndarray:
     - np.ndarray: The label array with the buffer added.
     """
     # Create a structuring element for dilation
-    arr = np.concatenate([np.zeros(num_buffer_tiles), np.ones(1), np.zeros(num_buffer_tiles)])
-    structure = np.add.outer(arr, arr) > 0
-    structure = structure.astype(np.uint8)
+    match buffer_type:
+        case 'point':
+            return label
+        case 'cross':
+            arr = np.concatenate([np.zeros(num_buffer_tiles), np.ones(1), np.zeros(num_buffer_tiles)])
+            structure = np.add.outer(arr, arr) > 0
+            structure = structure.astype(np.uint8)
+        case 'ball':
+            # Create a circular structuring element
+            y, x = np.ogrid[-num_buffer_tiles:num_buffer_tiles+1, -num_buffer_tiles:num_buffer_tiles+1]
+            structure = x**2 + y**2 <= num_buffer_tiles**2
+            structure = structure.astype(np.uint8)
+        case 'square':
+            structure = np.ones((2*num_buffer_tiles + 1, 2*num_buffer_tiles + 1), dtype=np.uint8)
+        case other:
+            raise ValueError(f"Buffer type not implemented: {buffer_type}")
 
     # Apply binary dilation to add buffer
     buffered_label = binary_dilation(label, structure=structure).astype(np.uint8)
