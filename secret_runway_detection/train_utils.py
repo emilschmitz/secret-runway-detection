@@ -242,96 +242,6 @@ def input_area_to_has_strip_tensor(
 
     return tensor
 
-def add_buffer_to_label(label: np.ndarray, num_buffer_tiles: int, 
-                        buffer_type: Literal['point', 'cross', 'ball', 'square']) -> np.ndarray:
-    """
-    Adds a buffer region around the tiles with value 1 in the label array.
-    For everyone, it basically adds a cross with 'arms' of length num_buffer_tiles around the 1s.
-
-    Parameters:
-    - label (np.ndarray): 2D array representing the label mask.
-    - num_buffer_tiles (int): Number of pixels to buffer around the tiles with value 1.
-
-    Returns:
-    - np.ndarray: The label array with the buffer added.
-    """
-    # Create a structuring element for dilation
-    match buffer_type:
-        case 'point':
-            return label
-        case 'cross':
-            arr = np.concatenate([np.zeros(num_buffer_tiles), np.ones(1), np.zeros(num_buffer_tiles)])
-            structure = np.add.outer(arr, arr) > 0
-            structure = structure.astype(np.uint8)
-        case 'ball':
-            # Create a circular structuring element
-            y, x = np.ogrid[-num_buffer_tiles:num_buffer_tiles+1, -num_buffer_tiles:num_buffer_tiles+1]
-            structure = x**2 + y**2 <= num_buffer_tiles**2
-            structure = structure.astype(np.uint8)
-        case 'square':
-            structure = np.ones((2*num_buffer_tiles + 1, 2*num_buffer_tiles + 1), dtype=np.uint8)
-        case other:
-            raise ValueError(f"Buffer type not implemented: {buffer_type}")
-
-    # Apply binary dilation to add buffer
-    buffered_label = binary_dilation(label, structure=structure).astype(np.uint8)
-
-    return buffered_label
-
-def get_time_period_of_strips_on_area(strips: gpd.GeoDataFrame, area: Polygon, area_crs: pyproj.CRS) -> tuple[pd.Timestamp, pd.Timestamp] | None:
-    """
-    Returns the time period of the strips that are on the specified area.
-    
-    Parameters:
-    - strips (gpd.GeoDataFrame): GeoDataFrame containing landing strip geometries with a 'yr' attribute (four-digit year).
-    - area (Polygon): The area polygon to check for overlapping strips.
-    - area_crs (pyproj.CRS): Coordinate Reference System of the area.
-    
-    Returns:
-    - tuple[pd.Timestamp, pd.Timestamp]: Start and end timestamps defining the smallest enclosing period.
-    - None: If no strips overlap the area.
-    
-    Raises:
-    - ValueError: If 'yr' attribute is missing.
-    - TypeError: If the 'yr' attribute is not numeric.
-    """
-    # Ensure the strips are in the same CRS as the area
-    if strips.crs != area_crs:
-        strips = strips.to_crs(area_crs)
-    
-    # Filter strips that intersect the area
-    overlapping_strips = strips[strips.intersects(area)].copy()
-    logging.debug(f"Overlapping strips: {overlapping_strips}")
-    
-    if overlapping_strips.empty:
-        logger.warning("No landing strips intersect the specified area.")
-        return None
-    
-    # Check if 'yr' attribute exists
-    if 'yr' not in overlapping_strips.columns:
-        raise ValueError("'yr' attribute not found in the strips GeoDataFrame.")
-    
-    # Extract 'yr' attribute
-    yrs = overlapping_strips['yr']
-    
-    # Ensure 'yr' is numeric (integer)
-    if not pd.api.types.is_numeric_dtype(yrs):
-        raise TypeError("'yr' attribute must be numeric (four-digit year).")
-    
-    # Convert 'yr' to integer if not already
-    yrs = yrs.astype(int)
-    logging.debug(f"Strip years: {yrs}")
-    
-    # Find the earliest and latest years
-    min_year = yrs.min()
-    max_year = yrs.max()
-    
-    # Create pd.Timestamp objects for the start and end of the period
-    start_timestamp = pd.Timestamp(year=min_year, month=1, day=1)
-    end_timestamp = pd.Timestamp(year=max_year, month=12, day=31)
-    
-    return (start_timestamp, end_timestamp)
-
 def input_area_to_input_image(
     input_area: Polygon, 
     image_data_start_date: pd.Timestamp,
@@ -493,6 +403,97 @@ def input_area_to_input_image(
     logger.debug(f"Thumbnail image transposed to shape {img_np.shape}.")
 
     return img_np
+
+def add_buffer_to_label(label: np.ndarray, num_buffer_tiles: int, 
+                        buffer_type: Literal['point', 'cross', 'ball', 'square']) -> np.ndarray:
+    """
+    Adds a buffer region around the tiles with value 1 in the label array.
+    For everyone, it basically adds a cross with 'arms' of length num_buffer_tiles around the 1s.
+
+    Parameters:
+    - label (np.ndarray): 2D array representing the label mask.
+    - num_buffer_tiles (int): Number of pixels to buffer around the tiles with value 1.
+
+    Returns:
+    - np.ndarray: The label array with the buffer added.
+    """
+    # Create a structuring element for dilation
+    match buffer_type:
+        case 'point':
+            return label
+        case 'cross':
+            arr = np.concatenate([np.zeros(num_buffer_tiles), np.ones(1), np.zeros(num_buffer_tiles)])
+            structure = np.add.outer(arr, arr) > 0
+            structure = structure.astype(np.uint8)
+        case 'ball':
+            # Create a circular structuring element
+            y, x = np.ogrid[-num_buffer_tiles:num_buffer_tiles+1, -num_buffer_tiles:num_buffer_tiles+1]
+            structure = x**2 + y**2 <= num_buffer_tiles**2
+            structure = structure.astype(np.uint8)
+        case 'square':
+            structure = np.ones((2*num_buffer_tiles + 1, 2*num_buffer_tiles + 1), dtype=np.uint8)
+        case other:
+            raise ValueError(f"Buffer type not implemented: {buffer_type}")
+
+    # Apply binary dilation to add buffer
+    buffered_label = binary_dilation(label, structure=structure).astype(np.uint8)
+
+    return buffered_label
+
+def get_time_period_of_strips_on_area(strips: gpd.GeoDataFrame, area: Polygon, area_crs: pyproj.CRS) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    """
+    Returns the time period of the strips that are on the specified area.
+    
+    Parameters:
+    - strips (gpd.GeoDataFrame): GeoDataFrame containing landing strip geometries with a 'yr' attribute (four-digit year).
+    - area (Polygon): The area polygon to check for overlapping strips.
+    - area_crs (pyproj.CRS): Coordinate Reference System of the area.
+    
+    Returns:
+    - tuple[pd.Timestamp, pd.Timestamp]: Start and end timestamps defining the smallest enclosing period.
+    - None: If no strips overlap the area.
+    
+    Raises:
+    - ValueError: If 'yr' attribute is missing.
+    - TypeError: If the 'yr' attribute is not numeric.
+    """
+    # Ensure the strips are in the same CRS as the area
+    if strips.crs != area_crs:
+        strips = strips.to_crs(area_crs)
+    
+    # Filter strips that intersect the area
+    overlapping_strips = strips[strips.intersects(area)].copy()
+    logging.debug(f"Overlapping strips: {overlapping_strips}")
+    
+    if overlapping_strips.empty:
+        logger.warning("No landing strips intersect the specified area.")
+        return None
+    
+    # Check if 'yr' attribute exists
+    if 'yr' not in overlapping_strips.columns:
+        raise ValueError("'yr' attribute not found in the strips GeoDataFrame.")
+    
+    # Extract 'yr' attribute
+    yrs = overlapping_strips['yr']
+    
+    # Ensure 'yr' is numeric (integer)
+    if not pd.api.types.is_numeric_dtype(yrs):
+        raise TypeError("'yr' attribute must be numeric (four-digit year).")
+    
+    # Convert 'yr' to integer if not already
+    yrs = yrs.astype(int)
+    logging.debug(f"Strip years: {yrs}")
+    
+    # Find the earliest and latest years
+    min_year = yrs.min()
+    max_year = yrs.max()
+    
+    # Create pd.Timestamp objects for the start and end of the period
+    start_timestamp = pd.Timestamp(year=min_year, month=1, day=1)
+    end_timestamp = pd.Timestamp(year=max_year, month=12, day=31)
+    
+    return (start_timestamp, end_timestamp)
+
 
 
 def make_input_image_tensor(input_image: np.ndarray) -> torch.Tensor:

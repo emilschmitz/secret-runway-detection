@@ -85,15 +85,13 @@ def test_landing_strips_to_input_areas(sample_aoi):
     """Test the landing_strips_to_input_areas function."""
     # Create sample landing strips within the AOI
     landing_strip_polygon = Polygon([
-        (5000, 5000),
-        (7000, 5000),
-        (7000, 7000),
-        (5000, 7000),
-        (5000, 5000)
+        (-70.08928656863503, -13.129844039931504), 
+        (-70.08052787039317, -13.128251134052485), 
+        (-70.08052787039317, -13.128251134052485)
     ])
-    landing_strips = gpd.GeoDataFrame({'geometry': [landing_strip_polygon]}, crs='EPSG:32633')
+    landing_strips = gpd.GeoDataFrame({'geometry': [landing_strip_polygon]}, crs='EPSG:3263')
     
-    input_areas = landing_strips_to_enclosing_input_areas(landing_strips, num_tiles_per_area_side_len=10)
+    input_areas = landing_strips_to_enclosing_input_areas(landing_strips, num_tiles_per_area_side_len=224)
     
     # Check if the number of input areas matches the number of landing strips
     assert len(input_areas) == len(landing_strips), "Number of input areas does not match number of landing strips."

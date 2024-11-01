@@ -31,8 +31,7 @@ class SegmentationHead(nn.Module):
             nn.ConvTranspose2d(16, 8, kernel_size=4, stride=2, padding=1),                  # Upsample x2
             nn.BatchNorm2d(8),
             nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(8, 1, kernel_size=3, stride=1, padding=1),                   # Upsample x1
-            nn.Sigmoid(),
+            nn.ConvTranspose2d(8, 1, kernel_size=4, stride=2, padding=1),                   # Upsample x1
         )
 
     def forward(self, x):
