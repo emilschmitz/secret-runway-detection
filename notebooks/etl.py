@@ -251,9 +251,10 @@ for idx in tqdm(range(NUM_POSSIBLY_EMPTY_AREAS), desc="Generating Possibly Empty
 
     # Fetch satellite image for the moved area
     try:
-        # Use a fixed date range where imagery is available
-        image_data_start_date = '2020-01-01'
-        image_data_end_date = '2021-01-01'
+        # Use a random year between 2016 and 2021 where imagery is available
+        random_year = random.randint(2016, 2021)
+        image_data_start_date = f'{random_year}-01-01'
+        image_data_end_date = f'{random_year + 1}-01-01'
 
         input_image = input_area_to_input_image(
             input_area=moved_area_wgs84,

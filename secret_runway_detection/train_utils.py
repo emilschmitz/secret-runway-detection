@@ -29,15 +29,15 @@ TILE_SIDE_LEN = 10.0
 ROWS_COUNT = 1527  # counts zero-indexed
 COLUMNS_COUNT = 1541
 
-INPUT_IMAGE_HEIGHT = 224  # in pixels
-INPUT_IMAGE_WIDTH = 224
+INPUT_IMAGE_HEIGHT = 192  # in pixels
+INPUT_IMAGE_WIDTH = 192
 
 # This is more than needed because 7 areas of 224 pixels will cover the whole with Sentinel-2 resolution
 # The areas will overlap
 INPUT_AREAS_VERTICALLY = 10  
 INPUT_AREAS_HORIZONTALLY = 10
 
-TILES_PER_AREA_LEN = 224  # side of one input area there should fit exactly this many tiles
+TILES_PER_AREA_LEN = 192  # side of one input area there should fit exactly this many tiles
 
 RANDOM_SEED = 42
 
