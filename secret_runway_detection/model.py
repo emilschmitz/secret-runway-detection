@@ -66,6 +66,10 @@ class SimpleSegmentationHead(nn.Module):
             nn.ConvTranspose2d(self.num_channels, 128, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
+            # Additional layers for increased complexity
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
             # Upsample from (12x12) to (24x24)
             nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(64),
@@ -76,6 +80,16 @@ class SimpleSegmentationHead(nn.Module):
             nn.ReLU(inplace=True),
             # Upsample from (48x48) to (96x96)
             nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            # Additional layers to maintain resolution
+            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(16, 16, kernel_size=3, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
             # Upsample from (96x96) to (192x192)
