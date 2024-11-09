@@ -4,6 +4,8 @@ import os
 import sys
 import torch
 import torch.nn as nn
+from torchvision.models.resnet import BasicBlock
+
 from types import SimpleNamespace
 
 # Suppress specific warnings (optional)
@@ -61,39 +63,54 @@ class SimpleSegmentationHead(nn.Module):
         self.num_channels = 256
 
         self.fc = nn.Linear(embedding_dim, self.num_channels * self.initial_grid_size * self.initial_grid_size)
+        
         self.decoder = nn.Sequential(
             # Upsample from (6x6) to (12x12)
             nn.ConvTranspose2d(self.num_channels, 128, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
+            
+            # Optional: Add a prebuilt block (e.g., BasicBlock from torchvision)
+            BasicBlock(128, 128),
+            
             # Upsample from (12x12) to (24x24)
             nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
+            
+            BasicBlock(64, 64),
+            
             # Upsample from (24x24) to (48x48)
             nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
+            
+            BasicBlock(32, 32),
+            
             # Upsample from (48x48) to (96x96)
             nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
+            
+            BasicBlock(16, 16),
+            
             # Upsample from (96x96) to (192x192)
             nn.ConvTranspose2d(16, output_channels, kernel_size=4, stride=2, padding=1),
-            # nn.ConvTranspose2d(16, 8, kernel_size=4, stride=2, padding=1),
-            # nn.BatchNorm2d(8),
-            # nn.ReLU(inplace=True),
-            # # Final layer to match output channels
-            # nn.ConvTranspose2d(8, output_channels, kernel_size=4, stride=2, padding=1),
-            # nn.Sigmoid()  # Use Softmax for multi-class segmentation
+            
+            # Refinement layers
+            nn.Conv2d(output_channels, output_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(output_channels),
+            nn.ReLU(inplace=True),
+            
+            nn.Conv2d(output_channels, output_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(output_channels),
+            nn.ReLU(inplace=True)
         )
 
     def forward(self, x):
         x = self.fc(x)
         x = x.view(-1, self.num_channels, self.initial_grid_size, self.initial_grid_size)
         x = self.decoder(x)
-        # print(f"Output shape before interpolation: {x.shape}")
-        x = nn.functional.interpolate(x, size=(self.output_size, self.output_size), mode='bicubic', align_corners=False)
         return x
 
 # Define the Multiscale Segmentation Head (UPerNet Style)
