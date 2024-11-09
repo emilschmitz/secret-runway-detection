@@ -16,6 +16,16 @@ from .vision_transformer import VisionTransformer
 
 
 class SwinTransformerForSimMIM(SwinTransformer):
+    """
+    Outputs a dictionary of intermediate features with keys:
+    - patch_embed: Patch embeddings
+    - masked_input: Masked input
+    - absolute_pos_embed: Absolute positional embeddings
+    - pos_drop: Positional dropout
+    - layer{idx}: Intermediate output of each layer
+    - norm: Layer normalization
+    - final_output: Final output
+    """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -25,7 +35,10 @@ class SwinTransformerForSimMIM(SwinTransformer):
         trunc_normal_(self.mask_token, mean=0., std=.02)
 
     def forward(self, x, mask):
+        features = {}  # Dictionary to store intermediate features
+
         x = self.patch_embed(x)
+        features['patch_embed'] = x
 
         assert mask is not None
         B, L, _ = x.shape
@@ -33,20 +46,28 @@ class SwinTransformerForSimMIM(SwinTransformer):
         mask_tokens = self.mask_token.expand(B, L, -1)
         w = mask.flatten(1).unsqueeze(-1).type_as(mask_tokens)
         x = x * (1. - w) + mask_tokens * w
+        features['masked_input'] = x
 
         if self.ape:
             x = x + self.absolute_pos_embed
+            features['absolute_pos_embed'] = x
         x = self.pos_drop(x)
+        features['pos_drop'] = x
 
-        for layer in self.layers:
+        for idx, layer in enumerate(self.layers):
             x = layer(x)
+            features[f'layer{idx}'] = x
+
         x = self.norm(x)
+        features['norm'] = x
 
         x = x.transpose(1, 2)
         B, C, L = x.shape
         H = W = int(L ** 0.5)
         x = x.reshape(B, C, H, W)
-        return x
+        features['final_output'] = x
+
+        return features  # Return the dictionary of features
 
     @torch.jit.ignore
     def no_weight_decay(self):

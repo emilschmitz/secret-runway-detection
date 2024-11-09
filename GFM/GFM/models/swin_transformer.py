@@ -454,10 +454,18 @@ class PatchEmbed(nn.Module):
 
 
 class SwinTransformer(nn.Module):
-    r""" Swin Transformer
-        A PyTorch impl of : `Swin Transformer: Hierarchical Vision Transformer using Shifted Windows`  -
-          https://arxiv.org/pdf/2103.14030
+    r""" Modified Swin Transformer to return intermediate features for segmentation tasks.
 
+    Outputs dict with keys:
+        - 'patch_embed': the tensor of patch embeddings
+        - 'pos_drop': the tensor after position embedding and dropout
+        - 'layer0': the tensor after the 1st Swin Transformer layer
+        - 'layer1': the tensor after the 2nd Swin Transformer layer
+        - ...
+        - 'norm': the tensor after the final layer norm
+        - 'final_feature': the final feature tensor
+        - 'output': the final output tensor
+    
     Args:
         img_size (int | tuple(int)): Input image size. Default 224
         patch_size (int | tuple(int)): Patch size. Default: 4
@@ -499,7 +507,7 @@ class SwinTransformer(nn.Module):
         self.num_features = int(embed_dim * 2 ** (self.num_layers - 1))
         self.mlp_ratio = mlp_ratio
 
-        # split image into non-overlapping patches
+        # Split image into non-overlapping patches
         self.patch_embed = PatchEmbed(
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim,
             norm_layer=norm_layer if self.patch_norm else None)
@@ -507,17 +515,17 @@ class SwinTransformer(nn.Module):
         patches_resolution = self.patch_embed.patches_resolution
         self.patches_resolution = patches_resolution
 
-        # absolute position embedding
+        # Absolute position embedding
         if self.ape:
             self.absolute_pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
             trunc_normal_(self.absolute_pos_embed, std=.02)
 
         self.pos_drop = nn.Dropout(p=drop_rate)
 
-        # stochastic depth
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
+        # Stochastic depth
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # Stochastic depth decay rule
 
-        # build layers
+        # Build layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
             layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
@@ -559,18 +567,33 @@ class SwinTransformer(nn.Module):
         return {'relative_position_bias_table'}
 
     def forward_features(self, x):
+        features = {}  # Dictionary to store intermediate features
+
         x = self.patch_embed(x)
+        features['patch_embed'] = x
+
         if self.ape:
             x = x + self.absolute_pos_embed
+            features['absolute_pos_embed'] = x
         x = self.pos_drop(x)
+        features['pos_drop'] = x
 
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
             x = layer(x)
+            features[f'layer{i}'] = x  # e.g., 'layer0', 'layer1', etc.
 
-        x = self.norm(x)  # B L C
+        x = self.norm(x)
+        features['norm'] = x
+
         x = self.avgpool(x.transpose(1, 2))  # B C 1
         x = torch.flatten(x, 1)
-        return x
+        features['final_feature'] = x
+
+        if self.num_classes > 0:
+            x = self.head(x)
+            features['output'] = x  # Classification output
+
+        return features  # Return the dictionary of features
 
     def forward(self, x):
         x = self.forward_features(x)
