@@ -168,6 +168,8 @@ upernet_config = SimpleNamespace(
 
 
 class UPerNetSegmentationModel(nn.Module):
+    """https://github.com/huggingface/transformers/blob/v4.46.2/src/transformers/models/upernet/modeling_upernet.py#L356
+    """
     def __init__(self, config, pretrained_weights_path, num_classes=1, output_size=192):
         super(UPerNetSegmentationModel, self).__init__()
         
@@ -178,12 +180,31 @@ class UPerNetSegmentationModel(nn.Module):
         # Your backbone outputs feature maps with channels: [256, 512, 1024, 1024]
         self.decode_head = UperNetHead(
             config=upernet_config,
-            in_channels=[256, 512, 1024, 1024]  # Align with your backbone's output channels
+            in_channels=[3, 
+                        #  128, 
+                         256, 512, 1024, 1024]  # Align with your backbone's output channels
         )
         
+        # # make transposed convolutions to upsample the patch_embeds to the desired resolutions
+        # self.patch_embed_upsample_96 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
+        # self.patch_embed_upsample_192 = nn.Sequential(
+        #     nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+        #     nn.ConvTranspose2d(64, 64, kernel_size=4, stride=2, padding=1),
+        # )
+
+        self.layer_space_dims = {
+            # 'patch_embed': 2304,
+            'layer0': 576,
+            'layer1': 144,
+            'layer2': 36,
+            'layer3': 36
+        }
+
+        self.fcs = {layer: nn.Linear(space_dim, space_dim) for layer, space_dim in self.layer_space_dims.items()}
+
         # # Initialize the auxiliary head if required by config
         # if config.use_auxiliary_head:
-        #     self.auxiliary_head = UperNetFCNHead(config)
+        #     self.auxiliary_head = transformers.UperNetFCNHead(config)
         # else:
         #     self.auxiliary_head = None
         
@@ -194,9 +215,20 @@ class UPerNetSegmentationModel(nn.Module):
         # Extract features from the backbone
         features = self.backbone(x)  # Should return a dict with keys like 'layer0', 'layer1', etc.
         
+        for key in self.layer_space_dims.keys():
+            # Replace transpose with permute for correct dimension ordering
+            features[key] = features[key].permute(0, 2, 1)  # Adjust the order based on desired dimensions
+            features[key] = self.fcs[key](features[key])
+
+        # # Upsample patch_embed twice to double resp. quadruble resolution
+        # patch_embed_96 = self.patch_embed_upsample_96(features['patch_embed'])
+        # patch_embed_192 = self.patch_embed_upsample_192(features['patch_embed'])
+
         # Convert the feature dictionary to a list ordered by resolution (low to high)
         # UperNetHead expects features ordered from low to high resolution
         feature_list = [
+            x,
+            # features['patch_embed'].reshape(x.size(0), 128, 48, 48),
             features['layer0'].reshape(x.size(0), 256, 24, 24),  # layer0: [B, 256, 24, 24]
             features['layer1'].reshape(x.size(0), 512, 12, 12),  # layer1: [B, 512, 12, 12]
             features['layer2'].reshape(x.size(0), 1024, 6, 6),   # layer2: [B, 1024, 6, 6]
@@ -205,6 +237,7 @@ class UPerNetSegmentationModel(nn.Module):
         
         # Pass the ordered feature list to the decode head
         logits = self.decode_head(feature_list)
+        print(logits.shape)
         
         # Interpolate to match the desired output size
         logits = nn.functional.interpolate(
@@ -266,14 +299,14 @@ class MultiscaleOutputBackbone(nn.Module):
     def __init__(self, config, pretrained_weights_path):
         super(MultiscaleOutputBackbone, self).__init__()
         # Build the backbone model using GFM's build_model
-        self.backbone = build_model(config, is_pretrain=False)
+        self.model = build_model(config, is_pretrain=False)
         
         # Load pretrained weights
-        _load_pretrained_weights(self.backbone, pretrained_weights_path)
+        _load_pretrained_weights(self.model, pretrained_weights_path)
 
     def forward(self, x):
         # Forward pass through the backbone
-        return self.backbone.forward_features(x)
+        return self.model.forward_features(x)
 
     
 
@@ -335,7 +368,7 @@ if __name__ == "__main__":
     # # Perform a dummy forward pass with SimpleSegmentationModel
     dummy_input = torch.randn(5, 3, 192, 192)  # Adjust IMG_SIZE as per your config
     
-    bb_feats = bb.forward_features(dummy_input)
+    # bb_feats = bb.forward_features(dummy_input)
 
     for key, value in bb_feats.items():
         print(f"Key: {key}, Shape: {value.shape}")
@@ -349,3 +382,5 @@ if __name__ == "__main__":
         output_size=192         # Desired output resolution
     )
     print("\nUPerNetSegmentationModel instantiated successfully.")
+
+    print(upernet_model(dummy_input))
