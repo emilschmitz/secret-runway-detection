@@ -200,7 +200,10 @@ class UPerNetSegmentationModel(nn.Module):
             'layer3': 36
         }
 
-        self.fcs = {layer: nn.Linear(space_dim, space_dim) for layer, space_dim in self.layer_space_dims.items()}
+        self.fcs = nn.ModuleDict({
+            layer: nn.Linear(space_dim, space_dim) 
+            for layer, space_dim in self.layer_space_dims.items()
+        })
 
         # # Initialize the auxiliary head if required by config
         # if config.use_auxiliary_head:
@@ -347,40 +350,40 @@ def get_model(model_type, cfg_path, pretrained_weights_path, num_classes=1, outp
     
     return model
 
-# Example usage (this part can be removed or commented out in the actual model.py file)
-if __name__ == "__main__":
-    # Define paths
-    CONFIG_PATH = '../configs/gfm_config.yaml'  # Adjust as necessary
-    PRETRAINED_WEIGHTS_PATH = '../simmim_pretrain/gfm.pth'  # Adjust as necessary
+# # Example usage (this part can be removed or commented out in the actual model.py file)
+# if __name__ == "__main__":
+#     # Define paths
+#     CONFIG_PATH = '../configs/gfm_config.yaml'  # Adjust as necessary
+#     PRETRAINED_WEIGHTS_PATH = '../simmim_pretrain/gfm.pth'  # Adjust as necessary
     
-    # Instantiate a simple segmentation model
-    simple_model = get_model(
-        model_type='simple',
-        cfg_path=CONFIG_PATH,
-        pretrained_weights_path=PRETRAINED_WEIGHTS_PATH,
-        num_classes=1,  # Binary segmentation
-        output_size=128
-    )
-    print("\nSimpleSegmentationModel instantiated successfully.")
+#     # Instantiate a simple segmentation model
+#     simple_model = get_model(
+#         model_type='simple',
+#         cfg_path=CONFIG_PATH,
+#         pretrained_weights_path=PRETRAINED_WEIGHTS_PATH,
+#         num_classes=1,  # Binary segmentation
+#         output_size=128
+#     )
+#     print("\nSimpleSegmentationModel instantiated successfully.")
 
-    bb = simple_model.backbone
+#     bb = simple_model.backbone
     
-    # # Perform a dummy forward pass with SimpleSegmentationModel
-    dummy_input = torch.randn(5, 3, 192, 192)  # Adjust IMG_SIZE as per your config
+#     # # Perform a dummy forward pass with SimpleSegmentationModel
+#     dummy_input = torch.randn(5, 3, 192, 192)  # Adjust IMG_SIZE as per your config
     
-    # bb_feats = bb.forward_features(dummy_input)
+#     # bb_feats = bb.forward_features(dummy_input)
 
-    for key, value in bb_feats.items():
-        print(f"Key: {key}, Shape: {value.shape}")
+#     for key, value in bb_feats.items():
+#         print(f"Key: {key}, Shape: {value.shape}")
 
-    # Instantiate a UPerNet segmentation model
-    upernet_model = get_model(
-        model_type='upernet',
-        cfg_path=CONFIG_PATH,
-        pretrained_weights_path=PRETRAINED_WEIGHTS_PATH,
-        num_classes=1,          # For binary segmentation
-        output_size=192         # Desired output resolution
-    )
-    print("\nUPerNetSegmentationModel instantiated successfully.")
+#     # Instantiate a UPerNet segmentation model
+#     upernet_model = get_model(
+#         model_type='upernet',
+#         cfg_path=CONFIG_PATH,
+#         pretrained_weights_path=PRETRAINED_WEIGHTS_PATH,
+#         num_classes=1,          # For binary segmentation
+#         output_size=192         # Desired output resolution
+#     )
+#     print("\nUPerNetSegmentationModel instantiated successfully.")
 
-    print(upernet_model(dummy_input))
+#     print(upernet_model(dummy_input))
