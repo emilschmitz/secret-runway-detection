@@ -243,7 +243,6 @@ class UPerNetSegmentationModel(nn.Module):
         
         # Pass the ordered feature list to the decode head
         logits = self.decode_head(feature_list)
-        # print(logits.shape)
         
         # Interpolate to match the desired output size
         logits = nn.functional.interpolate(
