@@ -182,7 +182,9 @@ class UPerNetSegmentationModel(nn.Module):
             config=upernet_config,
             in_channels=[3, 
                         #  128, 
-                         256, 512, 1024, 1024]  # Align with your backbone's output channels
+                         256, 512, 
+                        #  1024, 1024
+                         ]  # Align with your backbone's output channels
         )
         
         # # make transposed convolutions to upsample the patch_embeds to the desired resolutions
@@ -196,8 +198,8 @@ class UPerNetSegmentationModel(nn.Module):
             # 'patch_embed': 2304,
             'layer0': 576,
             'layer1': 144,
-            'layer2': 36,
-            'layer3': 36
+            # 'layer2': 36,
+            # 'layer3': 36
         }
 
         self.fcs = nn.ModuleDict({
@@ -234,8 +236,8 @@ class UPerNetSegmentationModel(nn.Module):
             # features['patch_embed'].reshape(x.size(0), 128, 48, 48),
             features['layer0'].reshape(x.size(0), 256, 24, 24),  # layer0: [B, 256, 24, 24]
             features['layer1'].reshape(x.size(0), 512, 12, 12),  # layer1: [B, 512, 12, 12]
-            features['layer2'].reshape(x.size(0), 1024, 6, 6),   # layer2: [B, 1024, 6, 6]
-            features['layer3'].reshape(x.size(0), 1024, 6, 6)    # layer3: [B, 1024, 6, 6]
+            # features['layer2'].reshape(x.size(0), 1024, 6, 6),   # layer2: [B, 1024, 6, 6]
+            # features['layer3'].reshape(x.size(0), 1024, 6, 6)    # layer3: [B, 1024, 6, 6]
         ]
         
         # Pass the ordered feature list to the decode head
