@@ -596,7 +596,17 @@ class SwinTransformer(nn.Module):
         return features  # Return the dictionary of features
 
     def forward(self, x):
-        x = self.forward_features(x)
+        x = self.patch_embed(x)
+        if self.ape:
+            x = x + self.absolute_pos_embed
+        x = self.pos_drop(x)
+
+        for layer in self.layers:
+            x = layer(x)
+
+        x = self.norm(x)  # B L C
+        x = self.avgpool(x.transpose(1, 2))  # B C 1
+        x = torch.flatten(x, 1)
         x = self.head(x)
         return x
 
