@@ -1,10 +1,14 @@
 # model.py
 
+import logging
 import os
 import sys
+import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from types import SimpleNamespace
+
 
 # Suppress specific warnings (optional)
 import warnings
@@ -122,13 +126,13 @@ class SimpleSegmentationHead(nn.Module):
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
             # Additional layers to maintain resolution
-            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+            nn.Conv2d(16, 16, kernel_size=7, padding=2),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
-            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+            nn.Conv2d(16, 16, kernel_size=7, padding=2),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
-            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+            nn.Conv2d(16, 16, kernel_size=7, padding=2),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
             # Upsample from (96x96) to (192x192)
@@ -225,6 +229,8 @@ class UPerNetSegmentationModel(nn.Module):
             # Replace transpose with permute for correct dimension ordering
             features[key] = features[key].permute(0, 2, 1)  # Adjust the order based on desired dimensions
             features[key] = self.fcs[key](features[key])
+            features[key] = features[key].reshape(x.size(0), features[key].size(1), 
+                np.sqrt(features[key].size(2)), np.sqrt(features[key].size(2)))
 
         # # Upsample patch_embed twice to double resp. quadruble resolution
         # patch_embed_96 = self.patch_embed_upsample_96(features['patch_embed'])
@@ -235,10 +241,10 @@ class UPerNetSegmentationModel(nn.Module):
         feature_list = [
             x,
             # features['patch_embed'].reshape(x.size(0), 128, 48, 48),
-            features['layer0'].reshape(x.size(0), 256, 24, 24),  # layer0: [B, 256, 24, 24]
-            # features['layer1'].reshape(x.size(0), 512, 12, 12),  # layer1: [B, 512, 12, 12]
-            # features['layer2'].reshape(x.size(0), 1024, 6, 6),   # layer2: [B, 1024, 6, 6]
-            # features['layer3'].reshape(x.size(0), 1024, 6, 6)    # layer3: [B, 1024, 6, 6]
+            features['layer0'].reshape(x.size(0), x.size(1), 24, 24),  # layer0: [B, 256, 24, 24]
+            # features['layer1'].reshape(x.size(0), x.size(1), 12, 12),  # layer1: [B, 512, 12, 12]
+            # features['layer2'].reshape(x.size(0), x.size(1), 6, 6),   # layer2: [B, 1024, 6, 6]
+            # features['layer3'].reshape(x.size(0), x.size(1), 6, 6)    # layer3: [B, 1024, 6, 6]
         ]
         
         # Pass the ordered feature list to the decode head
@@ -259,6 +265,157 @@ class UPerNetSegmentationModel(nn.Module):
         
         return logits
     
+
+class MidFeatSegmentationModel(nn.Module):
+    """https://github.com/huggingface/transformers/blob/v4.46.2/src/transformers/models/upernet/modeling_upernet.py#L356
+    """
+    def __init__(self, config, pretrained_weights_path, num_classes=1, output_size=192):
+        super(MidFeatSegmentationModel, self).__init__()
+        
+        # Initialize the backbone
+        self.backbone = MultiscaleOutputBackbone(config, pretrained_weights_path)
+        
+        # Define the input channels for UperNetHead based on backbone's feature channels
+        # Your backbone outputs feature maps with channels: [256, 512, 1024, 1024]
+        self.decode_head = DeepSegmentationHead(256)
+        
+        self.layer_space_dims = {
+            # 'patch_embed': 2304,
+            'layer0': 576,
+            'layer1': 144,
+            # 'layer2': 36,
+            # 'layer3': 36
+        }
+
+        self.fcs = nn.ModuleDict({
+            layer: nn.Linear(space_dim, space_dim) 
+            for layer, space_dim in self.layer_space_dims.items()
+        })
+
+        self.conv_double = nn.Conv2d(256, 256, kernel_size=3, padding=1)
+
+        self.output_size = output_size
+
+    def forward(self, x):
+        # Extract features from the backbone
+        features = self.backbone(x)  # Should return a dict with keys like 'layer0', 'layer1', etc.
+        
+        for key in ['layer0']:
+            # Replace transpose with permute for correct dimension ordering
+            features[key] = features[key].permute(0, 2, 1)  # Adjust the order based on desired dimensions
+            features[key] = self.fcs[key](features[key])
+            sqrt_dim = int(np.sqrt(features[key].size(2)))
+            features[key] = features[key].reshape(x.size(0), features[key].size(1), 
+                sqrt_dim, sqrt_dim)
+
+        # features['layer1'] = self.conv_double(features['layer1'])
+
+        # Pass the ordered feature list to the decode head  
+        logits = self.decode_head(features['layer0'])
+        
+
+        return logits
+
+
+class ResidualBlock(nn.Module):
+    """
+    A standard residual block with two convolutional layers and a skip connection.
+    """
+    def __init__(self, channels, kernel_size=3, padding=1):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Conv2d(
+            channels, channels, kernel_size=kernel_size, padding=padding)
+        self.bn1 = nn.BatchNorm2d(channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(
+            channels, channels, kernel_size=kernel_size, padding=padding)
+        self.bn2 = nn.BatchNorm2d(channels)
+
+    def forward(self, x):
+        identity = x
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += identity  # Residual connection
+        out = self.relu(out)
+        return out
+
+
+class DeepSegmentationHead(nn.Module):
+    def __init__(self, input_channels, output_channels=1, output_size=192, num_resblocks=1):
+        super(DeepSegmentationHead, self).__init__()
+        self.output_size = output_size
+
+        # Upsample to ~96x96
+        self.up1 = nn.Sequential(
+            nn.ConvTranspose2d(
+                input_channels, input_channels,
+                kernel_size=6, stride=4, padding=1),
+            nn.BatchNorm2d(input_channels),
+            nn.ReLU(inplace=True),
+        )
+
+        # Initial Residual Block with large kernel size
+        self.resblock1 = ResidualBlock(
+            input_channels, kernel_size=9, padding=4)
+
+        # Upsample to ~192x192
+        self.up2 = nn.Sequential(
+            nn.ConvTranspose2d(
+                input_channels, input_channels // 2,
+                kernel_size=6, stride=2, padding=2),
+            nn.BatchNorm2d(input_channels // 2),
+            nn.ReLU(inplace=True),
+        )
+
+        # Create a ModuleList of Residual Blocks
+        self.resblocks = nn.ModuleList([
+            ResidualBlock(
+                input_channels // 2, kernel_size=9, padding=4)
+            for _ in range(num_resblocks)
+        ])
+
+        # Convolutional layers to reduce channels
+        self.conv_reduce = nn.Sequential(
+            nn.Conv2d(
+                input_channels // 2, input_channels // 4,
+                kernel_size=9, padding=4),
+            nn.BatchNorm2d(input_channels // 4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(
+                input_channels // 4, input_channels // 8,
+                kernel_size=9, padding=4),
+            nn.BatchNorm2d(input_channels // 8),
+            nn.ReLU(inplace=True),
+        )
+
+        # Final output layer
+        self.final_conv = nn.Conv2d(
+            input_channels // 8, output_channels, kernel_size=1)
+
+    def forward(self, x):
+        x = self.up1(x)
+        x = self.resblock1(x)
+
+        x = self.up2(x)
+
+        # Apply the residual blocks
+        for resblock in self.resblocks:
+            x = resblock(x)
+
+        x = self.conv_reduce(x)
+        x = self.final_conv(x)
+
+        # Ensure output size matches desired dimensions
+        if x.shape[-1] != self.output_size:
+            x = F.interpolate(
+                x,
+                size=(self.output_size, self.output_size),
+                mode='bicubic',
+                align_corners=False
+            )
+        return x
+
+
 # Define the combined SimpleSegmentationModel
 class SimpleSegmentationModel(nn.Module):
     def __init__(self, config, pretrained_weights_path, output_channels=1, output_size=128):
@@ -278,12 +435,7 @@ class SimpleSegmentationModel(nn.Module):
 
     def forward(self, x):
         # Forward pass through the backbone
-        features = self.backbone(x)
-        
-        # Assuming the backbone returns a single feature map; adjust if multiple
-        if isinstance(features, list) or isinstance(features, tuple):
-            features = features[-1]  # Use the last feature map
-        x = features
+        x = self.backbone(x)
         
         # Forward pass through the segmentation head
         x = self.segmentation_head(x)
@@ -313,15 +465,87 @@ class MultiscaleOutputBackbone(nn.Module):
         # Forward pass through the backbone
         return self.model.forward_features(x)
 
-    
+class CNNSegmentationModel(nn.Module):
+    """
+    A simple CNN-based segmentation model that maps 192x192 input images to 192x192 output maps.
+    """
+    def __init__(self, config, pretrained_weights_path, output_channels=1, output_size=192, debug=False):
+        super(CNNSegmentationModel, self).__init__()
+        self.debug = debug  # Debug flag to control print statements
+        
+        # Downsampling layers with Batch Normalization
+        self.downsample = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=7, stride=2, padding=3),  # 192x192 -> 96x96
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),                 # 96x96 -> 48x48
+            nn.Conv2d(16, 16, kernel_size=7, stride=1, padding=3), # 48x48 -> 48x48
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(16, 16, kernel_size=7, stride=1, padding=3), # 48x48 -> 48x48
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+        )
+        
+        # Upsampling layers with Batch Normalization
+        self.upsample = nn.Sequential(
+            nn.ConvTranspose2d(16, 16, kernel_size=7, stride=2, padding=3, output_padding=1),  # 48x48 -> 96x96
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            
+            # Adjusted ConvTranspose2d layers: Removed output_padding=1 for stride=1
+            nn.ConvTranspose2d(16, 16, kernel_size=7, stride=1, padding=3),  # 96x96 -> 96x96
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            
+            nn.ConvTranspose2d(16, 16, kernel_size=7, stride=1, padding=3),  # 96x96 -> 96x96
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            
+            nn.ConvTranspose2d(16, 16, kernel_size=7, stride=1, padding=3),  # 96x96 -> 96x96
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            
+            # Final ConvTranspose2d to upsample back to 192x192
+            nn.ConvTranspose2d(16, output_channels, kernel_size=7, stride=2, padding=3, output_padding=1),  # 96x96 -> 192x192
+            nn.ReLU(inplace=True),
+            
+            nn.Conv2d(output_channels, output_channels, kernel_size=1, stride=1),
+        )
+        
+        self._initialize_weights()  # Initialize weights
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        if self.debug:
+            print(f"Input shape: {x.shape}")  # Optional debug print
+        
+        x = self.downsample(x)
+        if self.debug:
+            print(f"After downsample: {x.shape}")  # Optional debug print
+        
+        x = self.upsample(x)
+        if self.debug:
+            print(f"After upsample: {x.shape}")  # Optional debug print
+        
+        return x
 
 # Factory methods to instantiate models
-def get_model(model_type, cfg_path, pretrained_weights_path, num_classes=1, output_size=128):
+def get_model(model_type, cfg_path, pretrained_weights_path, num_classes=1, output_size=192):
     """
     Factory function to get the desired segmentation model.
 
     Parameters:
-    - model_type (str): 'simple' or 'upernet'
+    - model_type (str): 'simple', 'upernet', or 'cnn'
     - cfg_path (str): Path to the configuration YAML
     - pretrained_weights_path (str): Path to the pretrained weights
     - num_classes (int): Number of segmentation classes
@@ -347,45 +571,59 @@ def get_model(model_type, cfg_path, pretrained_weights_path, num_classes=1, outp
             num_classes=num_classes,
             output_size=output_size
         )
+    elif model_type == 'cnn':
+        model = CNNSegmentationModel(
+            config=config,
+            pretrained_weights_path=pretrained_weights_path,
+            output_channels=num_classes,
+            output_size=output_size
+        )
+    elif model_type == 'midfeat':
+        model = MidFeatSegmentationModel(
+            config=config,
+            pretrained_weights_path=pretrained_weights_path,
+            num_classes=num_classes,
+            output_size=output_size
+        )
     else:
-        raise ValueError(f"Unsupported model_type: {model_type}. Choose 'simple' or 'upernet'.")
+        raise ValueError(f"Unsupported model_type: {model_type}. Choose 'simple', 'upernet', or 'cnn'.")
     
     return model
 
-# # Example usage (this part can be removed or commented out in the actual model.py file)
-# if __name__ == "__main__":
-#     # Define paths
-#     CONFIG_PATH = '../configs/gfm_config.yaml'  # Adjust as necessary
-#     PRETRAINED_WEIGHTS_PATH = '../simmim_pretrain/gfm.pth'  # Adjust as necessary
+# Example usage (this part can be removed or commented out in the actual model.py file)
+if __name__ == "__main__":
+    # Define paths
+    CONFIG_PATH = '../configs/gfm_config.yaml'  # Adjust as necessary
+    PRETRAINED_WEIGHTS_PATH = '../simmim_pretrain/gfm.pth'  # Adjust as necessary
     
-#     # Instantiate a simple segmentation model
-#     simple_model = get_model(
-#         model_type='simple',
-#         cfg_path=CONFIG_PATH,
-#         pretrained_weights_path=PRETRAINED_WEIGHTS_PATH,
-#         num_classes=1,  # Binary segmentation
-#         output_size=128
-#     )
-#     print("\nSimpleSegmentationModel instantiated successfully.")
+    # Instantiate a simple segmentation model
+    simple_model = get_model(
+        model_type='simple',
+        cfg_path=CONFIG_PATH,
+        pretrained_weights_path=PRETRAINED_WEIGHTS_PATH,
+        num_classes=1,  # Binary segmentation
+        output_size=128
+    )
+    print("\nSimpleSegmentationModel instantiated successfully.")
 
-#     bb = simple_model.backbone
+    bb = simple_model.backbone
     
-#     # # Perform a dummy forward pass with SimpleSegmentationModel
-#     dummy_input = torch.randn(5, 3, 192, 192)  # Adjust IMG_SIZE as per your config
+    # # Perform a dummy forward pass with SimpleSegmentationModel
+    dummy_input = torch.randn(5, 3, 192, 192)  # Adjust IMG_SIZE as per your config
     
-#     # bb_feats = bb.forward_features(dummy_input)
+    bb_feats = bb.forward_features(dummy_input)
 
-#     for key, value in bb_feats.items():
-#         print(f"Key: {key}, Shape: {value.shape}")
+    for key, value in bb_feats.items():
+        print(f"Key: {key}, Shape: {value.shape}")
 
-#     # Instantiate a UPerNet segmentation model
-#     upernet_model = get_model(
-#         model_type='upernet',
-#         cfg_path=CONFIG_PATH,
-#         pretrained_weights_path=PRETRAINED_WEIGHTS_PATH,
-#         num_classes=1,          # For binary segmentation
-#         output_size=192         # Desired output resolution
-#     )
-#     print("\nUPerNetSegmentationModel instantiated successfully.")
+    # Instantiate a UPerNet segmentation model
+    upernet_model = get_model(
+        model_type='upernet',
+        cfg_path=CONFIG_PATH,
+        pretrained_weights_path=PRETRAINED_WEIGHTS_PATH,
+        num_classes=1,          # For binary segmentation
+        output_size=192         # Desired output resolution
+    )
+    print("\nUPerNetSegmentationModel instantiated successfully.")
 
-#     print(upernet_model(dummy_input))
+    print(upernet_model(dummy_input))

@@ -7,6 +7,8 @@ import sys
 sys.path.append(os.path.abspath('GFM'))  # Adjust the path as necessary
 
 from secret_runway_detection.model import (
+    CNNSegmentationModel,
+    MidFeatSegmentationModel,
     SimpleSegmentationHead,
     # MultiscaleSegmentationHead,
     SimpleSegmentationModel,
@@ -111,3 +113,49 @@ def test_get_model_upernet(dummy_input):
     with torch.no_grad():
         output = model(dummy_input)
     assert output.shape == (2, 1, 192, 192), f"Unexpected output shape: {output.shape}"
+
+def test_cnn_segmentation_model(dummy_input):
+    model = CNNSegmentationModel(
+        config=MockConfig(),  # Use the mock config
+        pretrained_weights_path=PRETRAINED_WEIGHTS_PATH,
+        output_channels=1,
+        output_size=192,
+        debug=True  # Enable debug mode for additional print statements
+    )
+    model.eval()  # Set to evaluation mode to avoid batch norm issues
+    
+    with torch.no_grad():  # Use no_grad for testing
+        output = model(dummy_input)
+    
+    assert output.shape == (2, 1, 192, 192), f"Unexpected output shape: {output.shape}"
+
+def test_get_model_cnn(dummy_input):
+    model = get_model(
+        model_type='cnn',
+        cfg_path=CONFIG_PATH,
+        pretrained_weights_path=PRETRAINED_WEIGHTS_PATH,
+        num_classes=1,
+        output_size=192
+    )
+    assert isinstance(model, CNNSegmentationModel), "Model type mismatch for 'cnn'"
+
+    # Test forward pass
+    with torch.no_grad():
+        output = model(dummy_input)
+    assert output.shape == (2, 1, 192, 192), f"Unexpected output shape: {output.shape}"
+    
+def test_get_model_midfeat(dummy_input):
+    model = get_model(
+        model_type='midfeat',
+        cfg_path=CONFIG_PATH,
+        pretrained_weights_path=PRETRAINED_WEIGHTS_PATH,
+        num_classes=1,
+        output_size=192
+    )
+    assert isinstance(model, MidFeatSegmentationModel), "Model type mismatch for 'midfeat'"
+
+    # Test forward pass
+    with torch.no_grad():
+        output = model(dummy_input)
+    assert output.shape == (2, 1, 192, 192), f"Unexpected output shape: {output.shape}"
+
