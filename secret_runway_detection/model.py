@@ -475,21 +475,21 @@ class CNNSegmentationModel(nn.Module):
         
         # Downsampling layers with Batch Normalization
         self.downsample = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=7, stride=2, padding=3),  # 192x192 -> 96x96
-            nn.BatchNorm2d(16),
+            nn.Conv2d(3, 32, kernel_size=7, stride=2, padding=3),  # 192x192 -> 96x96
+            nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),                 # 96x96 -> 48x48
-            nn.Conv2d(16, 16, kernel_size=7, stride=1, padding=3), # 48x48 -> 48x48
-            nn.BatchNorm2d(16),
+            nn.Conv2d(32, 32, kernel_size=7, stride=1, padding=3), # 48x48 -> 48x48
+            nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
-            nn.Conv2d(16, 16, kernel_size=7, stride=1, padding=3), # 48x48 -> 48x48
-            nn.BatchNorm2d(16),
+            nn.Conv2d(32, 32, kernel_size=7, stride=1, padding=3), # 48x48 -> 48x48
+            nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
         )
         
         # Upsampling layers with Batch Normalization
         self.upsample = nn.Sequential(
-            nn.ConvTranspose2d(16, 16, kernel_size=7, stride=2, padding=3, output_padding=1),  # 48x48 -> 96x96
+            nn.ConvTranspose2d(32, 16, kernel_size=7, stride=2, padding=3, output_padding=1),  # 48x48 -> 96x96
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
             
