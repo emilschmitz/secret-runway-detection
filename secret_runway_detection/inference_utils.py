@@ -6,6 +6,8 @@ import torch
 from shapely.geometry import Polygon, Point
 import os
 
+from tqdm import tqdm
+
 import secret_runway_detection.train_utils as train_utils
 
 # NB
@@ -289,6 +291,7 @@ def has_strip_tensors_to_submission_csv(
     indexes: str,
     reorder: bool = True,
     csvs_dir: str = '../submission_csvs',
+    csv_filename: str = 'submission',
     sample_submission_path: str = '../SampleSubmission.csv'
 ) -> pd.DataFrame:
     """
@@ -326,7 +329,7 @@ def has_strip_tensors_to_submission_csv(
         return f"{prefix}_{year_full}_{idx}"
 
     # Process each row in the sample submission
-    for _, row in sample_submission.iterrows():
+    for _, row in tqdm(sample_submission.iterrows()):
         tile_id = row['tile_row_column']  # E.g., 'Tileaoi_21_02_332_448'
 
         # Remove 'Tile' prefix and split the identifier
@@ -368,7 +371,7 @@ def has_strip_tensors_to_submission_csv(
 
     # Save to CSV
     os.makedirs(csvs_dir, exist_ok=True)
-    submission_csv_path = os.path.join(csvs_dir, 'submission.csv')
+    submission_csv_path = os.path.join(csvs_dir, f'{csv_filename}.csv')
     submission_df.to_csv(submission_csv_path, index=False)
 
     return submission_df
