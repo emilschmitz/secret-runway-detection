@@ -647,6 +647,78 @@ class CustomSegmentationModel(nn.Module):
         # Final convolution
         return self.final_conv(features)
 
+class SimpleCustomSegmentationModel(nn.Module):
+    """
+    A simpler custom segmentation model optimized for 192x192 images.
+    Uses basic conv-bn-relu blocks with skip connections.
+    """
+    def __init__(self, input_channels=3, output_channels=1):
+        super(SimpleCustomSegmentationModel, self).__init__()
+        
+        # First conv block (192x192 -> 96x96)
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(input_channels, 32, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Second conv block (96x96 -> 48x48)
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Third conv block with dilation (48x48 -> 48x48)
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(64, 64, kernel_size=3, dilation=2, padding=2),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+        )
+        
+        # First deconv block (48x48 -> 96x96)
+        self.deconv1 = nn.Sequential(
+            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Second deconv block (96x96 -> 192x192)
+        self.deconv2 = nn.Sequential(
+            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Final convolution
+        self.final = nn.Conv2d(16, output_channels, kernel_size=3, padding=1)
+        
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        # Encoder
+        x1 = self.conv1(x)      # 192->96
+        x2 = self.conv2(x1)     # 96->48
+        x3 = self.conv3(x2)     # 48->48 (dilated)
+        
+        # Decoder with skip connections
+        x = self.deconv1(x3)    # 48->96
+        x = x + x1              # Skip connection
+        x = self.deconv2(x)     # 96->192
+        x = self.final(x)       # Final conv
+        
+        return x
+
 # Factory methods to instantiate models
 def get_model(model_type, cfg_path, pretrained_weights_path, num_classes=1, output_size=192):
     """
@@ -698,6 +770,11 @@ def get_model(model_type, cfg_path, pretrained_weights_path, num_classes=1, outp
             input_channels=3,
             output_channels=num_classes,
             base_channels=32
+        )
+    elif model_type == 'simple_custom':
+        model = SimpleCustomSegmentationModel(
+            input_channels=3,
+            output_channels=num_classes
         )
     else:
         raise ValueError(f"Unsupported model_type: {model_type}. Choose 'simple', 'upernet', or 'cnn'.")
