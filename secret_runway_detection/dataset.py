@@ -32,6 +32,45 @@ class LandingStripDataset(Dataset):
             else:
                 logger.warning(f"Label file {label_file} does not exist.")
 
+        # Calculate class weights based on pixel distribution
+        self.class_weights = self._calculate_class_weights()
+
+    def _calculate_class_weights(self, samples_to_use=1000):
+        """
+        Calculate class weights based on pixel distribution.
+        Uses a subset of samples for efficiency.
+        """
+        pos_pixels = 0
+        total_pixels = 0
+        
+        # Use a subset of samples for calculation
+        sample_indices = random.sample(
+            range(len(self.samples)), 
+            min(samples_to_use, len(self.samples))
+        )
+        
+        for idx in sample_indices:
+            _, label_file = self.samples[idx]
+            label = np.load(label_file)
+            pos_pixels += np.sum(label)
+            total_pixels += label.size
+        
+        # Calculate weights
+        pos_ratio = pos_pixels / total_pixels
+        neg_ratio = 1 - pos_ratio
+        
+        # Create balanced weights
+        pos_weight = 1 / (2 * pos_ratio) if pos_ratio > 0 else 1
+        neg_weight = 1 / (2 * neg_ratio) if neg_ratio > 0 else 1
+        
+        # Return as tensor
+        weights = torch.FloatTensor([neg_weight, pos_weight])
+        
+        print(f"Class distribution - Negative: {neg_ratio:.3%}, Positive: {pos_ratio:.3%}")
+        print(f"Class weights - Negative: {neg_weight:.3f}, Positive: {pos_weight:.3f}")
+        
+        return weights
+
     def __len__(self):
         return len(self.samples)
 
@@ -73,15 +112,52 @@ class RandomRotate90:
         label = torch.rot90(label, k, [0, 1])  # Rotate label
         return image, label
 
+class RandomColorJitter:
+    def __init__(self, brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05):
+        self.color_jitter = T.ColorJitter(
+            brightness=brightness,
+            contrast=contrast,
+            saturation=saturation,
+            hue=hue
+        )
+
+    def __call__(self, image, label):
+        # ColorJitter expects (C,H,W) input
+        image = self.color_jitter(image)
+        return image, label
+
+class RandomNoise:
+    def __init__(self, std=0.01):
+        self.std = std
+        
+    def __call__(self, image, label):
+        noise = torch.randn_like(image) * self.std
+        image = image + noise
+        image = torch.clamp(image, 0, 1)
+        return image, label
+
 class SegmentationTransform:
-    def __init__(self):
+    def __init__(self, p_noise=0.3):
         self.transforms = [
             RandomHorizontalFlip(),
             RandomVerticalFlip(),
-            RandomRotate90()
+            RandomRotate90(),
+            RandomColorJitter(
+                brightness=0.1,
+                contrast=0.1, 
+                saturation=0.1,
+                hue=0.05
+            ),
         ]
+        self.noise = RandomNoise(std=0.01)
+        self.p_noise = p_noise
 
     def __call__(self, image, label):
         for transform in self.transforms:
             image, label = transform(image, label)
+            
+        # Apply noise with probability p_noise
+        if random.random() < self.p_noise:
+            image, label = self.noise(image, label)
+        
         return image, label

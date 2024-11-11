@@ -478,23 +478,12 @@ class CNNSegmentationModel(nn.Module):
             nn.Conv2d(3, 32, kernel_size=7, stride=2, padding=3),  # 192x192 -> 96x96
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),                 # 96x96 -> 48x48
-            nn.Conv2d(32, 32, kernel_size=7, stride=1, padding=3), # 48x48 -> 48x48
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(32, 32, kernel_size=7, stride=1, padding=3), # 48x48 -> 48x48
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
         )
         
         # Upsampling layers with Batch Normalization
         self.upsample = nn.Sequential(
-            nn.ConvTranspose2d(32, 16, kernel_size=7, stride=2, padding=3, output_padding=1),  # 48x48 -> 96x96
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-            
             # Adjusted ConvTranspose2d layers: Removed output_padding=1 for stride=1
-            nn.ConvTranspose2d(16, 16, kernel_size=7, stride=1, padding=3),  # 96x96 -> 96x96
+            nn.ConvTranspose2d(32, 16, kernel_size=7, stride=1, padding=3),  # 96x96 -> 96x96
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
             
@@ -547,6 +536,117 @@ class CNNSegmentationModel(nn.Module):
         
         return x
 
+class CustomSegmentationModel(nn.Module):
+    """
+    Custom segmentation model optimized for 192x192 images with class imbalance.
+    Uses a mix of efficient convolutions and attention mechanisms.
+    """
+    def __init__(self, input_channels=3, output_channels=1, base_channels=32):
+        super(CustomSegmentationModel, self).__init__()
+        
+        # Encoder
+        self.encoder = nn.Sequential(
+            # Block 1: 192x192 -> 96x96
+            nn.Conv2d(input_channels, base_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(base_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(base_channels, base_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(base_channels),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2),
+            
+            # Block 2: 96x96 -> 48x48
+            nn.Conv2d(base_channels, base_channels*2, kernel_size=3, padding=1),
+            nn.BatchNorm2d(base_channels*2),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(base_channels*2, base_channels*2, kernel_size=3, padding=1),
+            nn.BatchNorm2d(base_channels*2),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2),
+            
+            # Block 3: 48x48 -> 24x24 with dilated convolutions
+            nn.Conv2d(base_channels*2, base_channels*4, kernel_size=3, padding=2, dilation=2),
+            nn.BatchNorm2d(base_channels*4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(base_channels*4, base_channels*4, kernel_size=3, padding=2, dilation=2),
+            nn.BatchNorm2d(base_channels*4),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2)
+        )
+        
+        # Channel Attention
+        self.attention = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(base_channels*4, base_channels*4, kernel_size=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(base_channels*4, base_channels*4, kernel_size=1),
+            nn.Sigmoid()
+        )
+        
+        # Decoder with skip connections
+        self.decoder = nn.ModuleList([
+            # Block 1: 24x24 -> 48x48
+            nn.Sequential(
+                nn.ConvTranspose2d(base_channels*4, base_channels*2, kernel_size=4, stride=2, padding=1),
+                nn.BatchNorm2d(base_channels*2),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(base_channels*2, base_channels*2, kernel_size=3, padding=1),
+                nn.BatchNorm2d(base_channels*2),
+                nn.ReLU(inplace=True)
+            ),
+            # Block 2: 48x48 -> 96x96
+            nn.Sequential(
+                nn.ConvTranspose2d(base_channels*2, base_channels, kernel_size=4, stride=2, padding=1),
+                nn.BatchNorm2d(base_channels),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(base_channels, base_channels, kernel_size=3, padding=1),
+                nn.BatchNorm2d(base_channels),
+                nn.ReLU(inplace=True)
+            ),
+            # Block 3: 96x96 -> 192x192
+            nn.Sequential(
+                nn.ConvTranspose2d(base_channels, base_channels, kernel_size=4, stride=2, padding=1),
+                nn.BatchNorm2d(base_channels),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(base_channels, base_channels, kernel_size=3, padding=1),
+                nn.BatchNorm2d(base_channels),
+                nn.ReLU(inplace=True)
+            )
+        ])
+        
+        # Final convolution
+        self.final_conv = nn.Sequential(
+            nn.Conv2d(base_channels, output_channels, kernel_size=1),
+            nn.ReLU(inplace=True)  # Keep positive activations for better class imbalance handling
+        )
+        
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        # Encoder
+        features = self.encoder(x)
+        
+        # Apply channel attention
+        att = self.attention(features)
+        features = features * att
+        
+        # Decoder
+        for decoder_block in self.decoder:
+            features = decoder_block(features)
+            
+        # Final convolution
+        return self.final_conv(features)
+
 # Factory methods to instantiate models
 def get_model(model_type, cfg_path, pretrained_weights_path, num_classes=1, output_size=192):
     """
@@ -592,6 +692,12 @@ def get_model(model_type, cfg_path, pretrained_weights_path, num_classes=1, outp
             pretrained_weights_path=pretrained_weights_path,
             num_classes=num_classes,
             output_size=output_size
+        )
+    elif model_type == 'custom':
+        model = CustomSegmentationModel(
+            input_channels=3,
+            output_channels=num_classes,
+            base_channels=32
         )
     else:
         raise ValueError(f"Unsupported model_type: {model_type}. Choose 'simple', 'upernet', or 'cnn'.")
