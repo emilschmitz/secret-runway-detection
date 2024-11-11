@@ -341,7 +341,7 @@ class ResidualBlock(nn.Module):
 
 
 class DeepSegmentationHead(nn.Module):
-    def __init__(self, input_channels, output_channels=1, output_size=192, num_resblocks=1):
+    def __init__(self, input_channels, output_channels=1, output_size=192, num_resblocks=3):
         super(DeepSegmentationHead, self).__init__()
         self.output_size = output_size
 
@@ -467,57 +467,39 @@ class MultiscaleOutputBackbone(nn.Module):
 
 class CNNSegmentationModel(nn.Module):
     """
-    A simple CNN-based segmentation model that maps 192x192 input images to 192x192 output maps.
+    A deep CNN-based segmentation model that maintains input resolution throughout the network.
+    Uses large kernel ResidualBlocks for a large receptive field.
     """
     def __init__(self, config, pretrained_weights_path, output_channels=1, output_size=192, debug=False):
         super(CNNSegmentationModel, self).__init__()
-        self.debug = debug  # Debug flag to control print statements
+        self.debug = debug
         
-        # Downsampling layers with Batch Normalization
-        self.downsample = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=7, stride=2, padding=3),  # 192x192 -> 96x96
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),                 # 96x96 -> 48x48
-            nn.Conv2d(16, 16, kernel_size=7, stride=1, padding=3), # 48x48 -> 48x48
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(16, 16, kernel_size=7, stride=1, padding=3), # 48x48 -> 48x48
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
+        # Initial convolutional layer to adjust channels
+        self.initial_conv = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=9, padding=4),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
         )
         
-        # Upsampling layers with Batch Normalization
-        self.upsample = nn.Sequential(
-            nn.ConvTranspose2d(16, 16, kernel_size=7, stride=2, padding=3, output_padding=1),  # 48x48 -> 96x96
-            nn.BatchNorm2d(16),
+        # Stack of 10 ResidualBlocks with large kernels
+        self.resblocks = nn.Sequential(*[
+            ResidualBlock(channels=64, kernel_size=9, padding=4)
+            for _ in range(10)
+        ])
+        
+        # Final output layer
+        self.final_conv = nn.Sequential(
+            nn.Conv2d(64, 32, kernel_size=9, padding=4),
+            nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
-            
-            # Adjusted ConvTranspose2d layers: Removed output_padding=1 for stride=1
-            nn.ConvTranspose2d(16, 16, kernel_size=7, stride=1, padding=3),  # 96x96 -> 96x96
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-            
-            nn.ConvTranspose2d(16, 16, kernel_size=7, stride=1, padding=3),  # 96x96 -> 96x96
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-            
-            nn.ConvTranspose2d(16, 16, kernel_size=7, stride=1, padding=3),  # 96x96 -> 96x96
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-            
-            # Final ConvTranspose2d to upsample back to 192x192
-            nn.ConvTranspose2d(16, output_channels, kernel_size=7, stride=2, padding=3, output_padding=1),  # 96x96 -> 192x192
-            nn.ReLU(inplace=True),
-            
-            nn.Conv2d(output_channels, output_channels, kernel_size=1, stride=1),
+            nn.Conv2d(32, output_channels, kernel_size=1)
         )
         
-        self._initialize_weights()  # Initialize weights
+        self._initialize_weights()
 
     def _initialize_weights(self):
         for m in self.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+            if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
@@ -527,15 +509,14 @@ class CNNSegmentationModel(nn.Module):
 
     def forward(self, x):
         if self.debug:
-            print(f"Input shape: {x.shape}")  # Optional debug print
+            print(f"Input shape: {x.shape}")
         
-        x = self.downsample(x)
-        if self.debug:
-            print(f"After downsample: {x.shape}")  # Optional debug print
+        x = self.initial_conv(x)
+        x = self.resblocks(x)
+        x = self.final_conv(x)
         
-        x = self.upsample(x)
         if self.debug:
-            print(f"After upsample: {x.shape}")  # Optional debug print
+            print(f"Output shape: {x.shape}")
         
         return x
 
