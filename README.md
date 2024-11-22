@@ -39,7 +39,3 @@ The [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) governs th
 ### Modifications
 
 - **Integration:** The GFM repository has been integrated as a subfolder within this project to facilitate fine-tuning Swin Transformers for segmentation tasks.
-
----
-
-Feel free to explore the repository and check out the code! 😊
