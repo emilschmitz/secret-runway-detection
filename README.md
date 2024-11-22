@@ -10,7 +10,7 @@ In this competition, we were given coordinate polygons of secret runways in the 
 
 ## My Approach
 
-I started by sourcing images of size 192x192 containing existing runways from Sentinel-2 satellite imagery. I made sure to randomize the location of the runway within each image.
+I started by sourcing images of size 192x192 containing existing runways from Sentinel-2 satellite imagery. I made sure to randomize the location of the runway within each image to make the model more robust.
 
 ### First Attempt: Swin Transformer
 
